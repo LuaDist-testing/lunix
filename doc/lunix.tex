@@ -36,6 +36,10 @@
 \newcommand*{\errno}[1]{\texttt{#1}\xspace}
 \newcommand*{\crlf}[0]{$\backslash$r$\backslash$n\xspace}
 \newcommand*{\lf}[0]{$\backslash$n\xspace}
+\newcommand*{\otherwise}[1]{otherwise #1, an error string, and an integer system error}
+\newcommand*{\sockaddr}[0]{\texttt{sockaddr}\xspace}
+\newcommand*{\mustbe}[0]{\texttt{must be}\xspace}
+\newcommand*{\seefn}[1]{\hyperref[#1]{\fn{#1}}\xspace}
 
 %
 % ENVIRONMENTS
@@ -247,11 +251,15 @@ Similar to \_\_pairs, but the iterator returns an index integer as the key follo
 Identical to the \_\_pairs metamethod, to be used to create an iterator directly as Lua 5.1 doesn't support \texttt{\_\_pairs}.
 \end{description}
 
+\subsubsection[\fn{accept}]{\fn{accept($file$[,$flags$])}}
+
+FIXME.
+
 \subsubsection[\fn{arc4random}]{\fn{arc4random()}}
 
-Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
+Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available; or on more recent Linux and Solaris kernels the \syscall{getrandom} interface.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris 11.2 or earlier, the implementation must resort to /dev/urandom for seeding.
 
-Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD (prior to 10.0) seeds itself from /dev/urandom. This could cause problems in chroot jails.
+Note that unlike the original implementation on OpenBSD, \fn{arc4random} on some older platforms (e.g. FreeBSD prior to 10.10) seeds itself from /dev/urandom. This could cause problems in chroot jails.
 
 \subsubsection[\fn{arc4random\_buf}]{\fn{arc4random\_buf($n$)}}
 
@@ -265,15 +273,25 @@ Stir the arc4random entropy pool using the best available resources. This normal
 
 Returns a cryptographically strong uniform random integer in the interval $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is $[0, 2^{32}-1]$ and effectively behaves like \fn{arc4random}.
 
+\subsubsection[\fn{bind}]{\fn{bind($file$[,$sockaddr$])}}
+
+FIXME.
+
 \subsubsection[\fn{chdir}]{\fn{chdir($dir$)}}
 
 If $dir$ is a string, attempts to change the current working directory using \syscall{chdir}. Otherwise, if $dir$ is a FILE handle referencing a directory, or an integer file descriptor referencing a directory, attempts to change the current working directory using \syscall{fchdir}.
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
+\subsubsection[\fn{chmod}]{\fn{chmod($file$, $mode$)}}
+
+$file$ may be either be a string path for use with \syscall{chmod}, or a FILE handle or integer file descriptor for use with \syscall{fchmod}. $mode$ may be an integer value or symbolic string.
+
+Returns \true on success, otherwise returns \false, an error string, and an integer system error.
+
 \subsubsection[\fn{chown}]{\fn{chown($file$[, $uid$][, $gid$])}}
 
-$file$ may either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
+$file$ may be either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
@@ -292,6 +310,26 @@ Returns a time value as a Lua floating point number, otherwise returns \nil, an 
 \subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
 
 Closes the DIR handle, releasing the underlying file descriptor.
+
+\subsubsection[\fn{connect}]{\fn{connect($file$[,$sockaddr$])}}
+
+FIXME.
+
+\subsubsection[\fn{dup}]{\fn{dup($file$[, $flags$])}}
+
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional file status flags integer. If available, \syscall{F\_DUPFD\_CLOEXEC} is used to ensure atomic setting of any \syscall{O\_CLOEXEC} flag.
+
+Returns an integer descriptor on success, \otherwise{\nil}, an error string, and an integer system error.
+
+\subsubsection[\fn{dup2}]{\fn{dup2($file$, $file$[, $flags$])}}
+
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional file status flags integer. If available, either \syscall{dup3} or \syscall{F\_DUP2FD\_CLOEXEC} is used to ensure atomic setting of any \syscall{O\_CLOEXEC} flag.
+
+Returns an integer descriptor on success, \otherwise{\nil}.
+
+\subsubsection[\fn{dup3}]{\fn{dup3($file$, $file$, $flags$)}}
+
+Like \syscall{dup2}, except $flags$ is not optional. This binding will not exist if \syscall{dup3} was not available at compile-time, whereas the \syscall{dup2} binding is best-effort regarding atomically setting \syscall{O\_CLOEXEC}.
 
 \subsubsection[\fn{execve}]{\fn{execve($path$[, $argv$][, $env$])}}
 
@@ -325,6 +363,28 @@ Exits the process immediately without first flushing and closing open streams, o
 
 Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
 
+\subsubsection[\fn{fcntl}]{\fn{fcntl($file$|$dir$|$fd$, \ldots)}}
+
+FIXME
+
+\subsubsection[\fn{fdatasync}]{\fn{fdatasync($file$|$dir$|$fd$)}}
+
+FIXME
+
+\subsubsection[\fn{fdopen}]{\fn{fdopen($file$|$dir$|$fd$[, $mode$])}}
+
+FIXME
+
+\subsubsection[\fn{fdopendir}]{\fn{fdopendir($file$|$dir$|$fd$)}}
+
+FIXME
+
+\subsubsection[\fn{fdup}]{\fn{fdup($file$[, $flags$])}}
+
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer or symbolic mode.
+
+Returns a FILE handle on success, otherwise returns \nil, an error string, and an integer system error.
+
 \subsubsection[\fn{fileno}]{\fn{fileno($file$|$dir$|$fd$)}}
 
 Resolves the specified FILE handle or DIR handle to an integer file descriptor. An integer descriptor is returned as-is.
@@ -339,6 +399,10 @@ This function only works on FILE handles and not DIR handlers or integer descrip
 
 See \fn{stat}.
 
+\subsubsection[\fn{fsync}]{\fn{fsync($file$|$dir$|$fd$)}}
+
+FIXME
+
 \subsubsection[\fn{ftrylockfile}]{\fn{ftrylockfile($fh$)}}
 
 Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh$ was locked by another thread.
@@ -346,6 +410,14 @@ Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh
 \subsubsection[\fn{funlockfile}]{\fn{funlockfile($fh$)}}
 
 Unlocks the FILE handle $fh$. Returns \true.
+
+\subsubsection[\fn{fopen}]{\fn{fopen($path$|$file$|$dir$|$fd$,[$mode$][,$perm$])}}
+
+FIXME.
+
+\subsubsection[\fn{fpipe}]{\fn{fpipe([$mode$])}}
+
+FIXME.
 
 \subsubsection[\fn{fork}]{\fn{fork()}}
 
@@ -392,6 +464,10 @@ Integer port.
 \end{description}
 
 If fields are specified, the iterator returns a list of fields in the order specified.
+
+\subsubsection[\fn{getnameinfo}]{\fn{getnameinfo($sockaddr$[, $flags$])}}
+
+FIXME.
 
 \subsubsection[\fn{getegid}]{\fn{getegid()}}
 
@@ -444,6 +520,14 @@ If no group was found, returns \nil followed by the error string ``no such group
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{getgroups}]{\fn{getgroups()}}
+
+Returns table of supplementary GIDs on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{gethostname}]{\fn{gethostname()}}
+
+Returns system hostname as string on success, otherwise \nil, an error string, and an integer system error.
+
 \subsubsection[\fn{getifaddrs}]{\fn{getifaddrs([$\ldots$])}}
 
 Returns an iterator over the current system network interfaces on success. If a system error occurred, returns \nil, an error string, and an integer system error.
@@ -471,10 +555,29 @@ Interface broadcast address, or \nil if absent or of an unknown address family.
 
 If arguments are given, each field specified (as named above) is returned as part of the return value list on every invocation of the iterator.
 
+\subsubsection[\fn{getpeername}]{\fn{getpeername($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{getpgid}]{\fn{getpgid()}}
+
+FIXME.
+
+\subsubsection[\fn{getpgrp}]{\fn{getpgrp()}}
+
+FIXME.
 
 \subsubsection[\fn{getpid}]{\fn{getpid()}}
 
 Returns the process ID as a Lua number.
+
+\subsubsection[\fn{getppid}]{\fn{getppid()}}
+
+Returns the parent process ID as a Lua number.
+
+\subsubsection[\fn{getprogname}]{\fn{getprogname()}}
+
+Returns the program name as a string, otherwise \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{getpwnam}]{\fn{getpwnam($usr$[, $\ldots$])}}
 
@@ -505,6 +608,18 @@ If no user was found, returns \nil followed by the error string ``no such user''
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{getrlimit}]{\fn{getrlimit([$what$])}}
+
+FIXME.
+
+\subsubsection[\fn{getrusage}]{\fn{getrusage([$who$])}}
+
+FIXME.
+
+\subsubsection[\fn{getsockname}]{\fn{getsockname($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{gettimeofday}]{\fn{gettimeofday([$ints$])}}
 
 Returns the current time as a Lua floating point number or, if $ints$ is \true, as two integers representing seconds and microseconds.
@@ -515,6 +630,18 @@ On failure returns \nil, an error string, and an integer system error.
 
 Returns the real process UID as a Lua number.
 
+\subsubsection[\fn{grantpt}]{\fn{grantpt($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{ioctl}]{\fn{ioctl($file$, \ldots)}}
+
+FIXME.
+
+\subsubsection[\fn{isatty}]{\fn{isatty($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{issetugid}]{\fn{issetugid()}}
 
 Returns \true if the process environment is considered unsafe because of setuid, setgid, or similar operations, otherwise \false.
@@ -523,11 +650,23 @@ Returns \true if the process environment is considered unsafe because of setuid,
 
 Sends signal $signo$ to process or process group $pid$. Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{lchown}]{\fn{lchown($path1$[, $uid$][, $gid$])}}
+
+FIXME.
+
 \subsubsection[\fn{link}]{\fn{link($path1$, $path2$)}}
 
 Creates a new directory entry at $path2$ as a hard link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{lockf}]{\fn{lockf($file$, $cmd$[, $size$])}}
+
+FIXME.
+
+\subsubsection[\fn{lseek}]{\fn{lseek($file$, $offset$, $whence$)}}
+
+FIXME.
 
 \subsubsection[\fn{lstat}]{\fn{lstat($path$[, $field$ \ldots])}}
 
@@ -545,15 +684,76 @@ Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ i
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{open}]{\fn{open($path$|$file$[, $mode$][, $perm$])}}
+
+FIXME.
+
 \subsubsection[\fn{opendir}]{\fn{opendir($path$|$file$|$dir$|$fd$)}}
 
 Creates a DIR handle for reading directory entries. Caller may specify a path string, a Lua FILE handle, another DIR handle, or an integer descriptor. In the latter three cases, the underlying descriptor is duplicated using \syscall{dup3} (if available) or \syscall{dup2} because there's no safe way to steal the descriptor from existing FILE or DIR handles. But it's not a good idea to mix reads between the two original and duplicated descriptors as they will normally share the same open file entry in the kernel, including the same position cursor.\footnote{In the future may add ability to open /proc/self/fd or /dev/fd entries, which should create a new open file entry.}
 
 Returns a DIR handle on success, otherwise nil, an error string, and an integer system error.
 
+\subsubsection[\fn{pipe}]{\fn{pipe($mode$)}}
+
+FIXME.
+
+\subsubsection[\fn{poll}]{\fn{poll($fds$[, $timeout$])}}
+
+Polls on the file descriptor events specified by $fds$. Following the \luaposix API, $fds$ is a table indexed by integer file descriptors, each table entry another table with the integer bitmak field ``events'' specifying desired events to poll. $timeout$ is an optional floating-pointing value specifying the number of seconds (and fractions thereof) to block. A missing or \nil timeout will wait forever; a negative value is assumed to be the result of arithmetic underflow and effects a 0-second timeout.\footnote{In other words, do not pass $-1$ as-if directly calling the underlying system call.}
+
+On success updates the ``revents'' field for each descriptor entry in $fds$ and returns the number of ready descriptors; \otherwise{\nil}.
+
+\begin{example}{lua}
+local fds = { [fd] = { events = unix.POLLIN } }
+local nr = assert(unix.poll(fds, 3.0))
+for fd, t in pairs(fds) do
+  -- see Appendix for strevents implementation
+  print(fd, strevents(t.events), strevents(t.revents))
+end
+\end{example}
+
+\subsubsection[\fn{posix\_fadvise}]{\fn{posix\_fadvise($file$, $offset$, $len$, $advice$)}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_fallocate}]{\fn{posix\_fallocate($file$, $offset$, $len$)}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_openpt}]{\fn{posix\_openpt([$flags$])}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_fopenpt}]{\fn{posix\_fopenpt([$flags$])}}
+
+FIXME.
+
+\subsubsection[\fn{pread}]{\fn{pread($file$, $size$, $offset$)}}
+
+Reads up to $size$ bytes of data from $file$ at $offset$. $file$ may be either a FILE handle or integer file descriptor.
+
+Returns a string on success, \otherwise{\nil}.
+
+\subsubsection[\fn{ptsname}]{\fn{ptsname($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{pwrite}]{\fn{pwrite($file$, $data$, $offset$)}}
+
+Writes $data$ to $file$ at $offset$. $file$ may be either a FILE handle or integer file descriptor.
+
+Returns an integer representing the number of bytes written (which may be less than \texttt{\#data}) on success, \otherwise{\nil}.
+
 \subsubsection[\fn{raise}]{\fn{raise($signo$)}}
 
 Sends signal $signo$ to calling thread. Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{read}]{\fn{read($file$, $size$)}}
+
+Reads up to $size$ bytes of data from $file$. $file$ may be either a FILE handle or integer file descriptor.
+
+Returns a string on success, \otherwise{\nil}.
 
 \subsubsection[\fn{readdir}]{\fn{readdir($dir$[, $field$ $\ldots$])}}
 
@@ -575,6 +775,30 @@ If additional arguments are given, on success each field specified (as named abo
 If the end of directory entries has been reached, returns \nil.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{recv}]{\fn{recv($file$, $size$[, $flags$])}}
+
+Receives up to $size$ bytes of data from the socket $file$. $file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer containing bitwise socket receive flags (e.g. \texttt{MSG\_WAITALL}).
+
+Returns a string on success, \otherwise{\nil}.
+
+\subsubsection[\fn{recvfrom}]{\fn{recvfrom($file$, $size$[, $flags$])}}
+
+Like \syscall{recv}. Returns a string and \sockaddr on success; \otherwise{\nil}.
+
+\subsubsection[\fn{recvfromto}]{\fn{recvfromto($file$, $size$[, $flags$])}}
+
+\label{recvfromto}
+
+Like \syscall{recvfrom}. Returns a string, source \sockaddr, and destination \sockaddr on success; \otherwise{\nil}.
+
+This interface is useful for replying to UDP packets with the same source address received on, without having to enumerate, bind, and listen on multiple interfaces. Because interfaces can go down and come up dynamically, binding on multiple interfaces is complex and difficult. See also the reciprocal interface, \seefn{sendtofrom}.
+
+NOTES:
+\begin{itemize}
+\item Not all platforms support this interface. AIX (confirmed 7.1) supports IPv6 but not IPv4.
+\item The descriptor \mustbe initialized by enabling a specialized socket option. The option varies by platform and socket protocol family. See \seefn{setrecvaddr} example in Appendix.
+\end{itemize}
 
 \subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
 
@@ -634,6 +858,29 @@ Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} 
 
 Returns \true or \false.
 
+\subsubsection[\fn{send}]{\fn{send($file$, $data$[, $flags$])}}
+
+Sends $data$ to the peer on the socket, $file$. $file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer containing bitwise socket send flags (e.g. \texttt{MSG\_NOSIGNAL}).
+
+Returns an integer representing the number of bytes sent (which may be less than \texttt{\#data}) on success, \otherwise{\nil}.
+
+\subsubsection[\fn{sendto}]{\fn{sendto($file$, $data$, $flags$, $to\_addr$}}
+
+Like \syscall{send}. $to\_addr$ is a \sockaddr destination address or table convertible to a \sockaddr
+
+\subsubsection[\fn{sendtofrom}]{\fn{sendtofrom($file$, $data$, $flags$, $to\_addr$, $from\_addr$)}}
+
+\label{sendtofrom}
+
+Like \syscall{send}. $to\_addr$ is a \sockaddr destination address or table convertible to a \sockaddr, and $from\_addr$ a \sockaddr source address or table convertible to a \sockaddr. See also the reciprocal interface, \seefn{recvfromto}.
+
+NOTES:
+\begin{itemize}
+\item Not all platforms support this interface. AIX (confirmed 7.1), NetBSD (confirmed 7.0), and OpenBSD <= 6.0 (confirmed 6.0) support IPv6 but not IPv4.
+\item FreeBSD (confirmed 10.1) requires the socket to be bound to the wildcard address, ``0.0.0.0'' or ``::''.
+\item macOS 10.10 and several prior releases contain a kernel bug which causes a kernel panic if the socket address is not bound as required by FreeBSD. (Oddly macOS copied Linux's \texttt{IP\_PKTINFO} interface, not FreeBSD's \texttt{IP\_SENDSRCADDR}; but Linux doesn't have the requirement to bind).
+\end{itemize}
+
 \subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
 
 Set the effective process GID to $gid$. $gid$ must be an integer or symbolic group name.
@@ -674,11 +921,23 @@ $locale$ can be either a string identifier for the locale, or \nil to query the 
 
 Returns a locale string identifier on success, otherwise \nil if the specified $category$ and $locale$ could not be honored.
 
+\subsubsection[\fn{setpgid}]{\fn{setpgid($pid$, $pgid$)}}
+
+FIXME.
+
+\subsubsection[\fn{setrlimit}]{\fn{setrlimit($what$[, $soft$][, $hard$])}}
+
+FIXME.
+
 \subsubsection[\fn{setsid}]{\fn{setsid()}}
 
 Create a new session and process group.
 
 Returns the new process group ID on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{setsockopt}]{\fn{setsockopt($file$, $level$, $type$, \ldots)}}
+
+FIXME.
 
 \subsubsection[\fn{setuid}]{\fn{setuid($uid$)}}
 
@@ -746,6 +1005,14 @@ On success returns an integer signal number cleared from the pending set and an 
 
 \emph{OS X and OpenBSD lack a native \syscall{sigtimedwait} implementation. On OS X \lunix uses \syscall{sigpending} and \syscall{sigwait} to emulate the behavior. However, in a multi--threaded application if another thread clears a signal between \syscall{sigpending} and \syscall{sigwait} then \syscall{sigwait} could block indefinitely. There's no way to solve this race condition.\footnote{One possible solution is to explicitly \syscall{raise} the signal before calling \syscall{sigpending}, but this solutions relies on untested assumptions about signal handling on these platforms.} On OpenBSD \syscall{sigwait} is only available through libpthread, but on OpenBSD libpthread must be loaded at process load--time and cannot be brought in as a \syscall{dlopen} run--time dependency. Therefore an alternative emulation is used which clears the pending signal by installing a noop signal handler. This is not thread-safe if another thread is also installing a signal handler simultaneously. Threaded applications on these platforms should be mindful of these limitations. The \cqueues project supports thread-safe signal listening with \syscall{kqueue} on both OpenBSD and Mac OS X.}
 
+\subsubsection[\fn{sigwait}]{\fn{sigwait($set$)}}
+
+FIXME.
+
+\subsubsection[\fn{sleep}]{\fn{sleep($n$)}}
+
+FIXME.
+
 \subsubsection[\fn{stat}]{\fn{stat($path$|$file$|$dir$|$fd$[, $field$ $\ldots$])}}
 
 Stats the specified file. Caller may specify a path string, a Lua FILE handle, a DIR handle (see \fn{opendir}), or an integer descriptor.
@@ -799,6 +1066,14 @@ Creates a new directory entry at $path2$ as a symbolic link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
 
+\subsubsection[\fn{tcgetpgrp}]{\fn{tcgetpgrp($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{tcsetpgrp}]{\fn{tcsetpgrp($file$, $pgid$)}}
+
+FIXME.
+
 \subsubsection[\fn{timegm}]{\fn{timegm($tm$)}}
 
 $tm$ is a table of the form returned by the Lua routine \fn{os.date("*t")}. This allows converting a datetime in GMT directly to a POSIX timestamp without having to change the process timezone, which is inherently non-thread-safe.
@@ -850,6 +1125,10 @@ Deletes the file entry at $path$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
 
+\subsubsection[\fn{unlockpt}]{\fn{unlockpt($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{unsetenv}]{\fn{unsetenv($name$)}}
 
 Deletes the environment variable $name$ from the environment table.
@@ -857,6 +1136,20 @@ Deletes the environment variable $name$ from the environment table.
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
 \emph{This function is thread-safe on Solaris, NetBSD, and Linux/glibc. But see note at \fn{getenv}. Also see note at \fn{setenv}. In general \fn{unsetenv} should be avoided in multi-threaded environments.}
+
+\subsubsection[\fn{wait}]{\fn{wait([$pid$][, $options$])}}
+
+FIXME.
+
+\subsubsection[\fn{waitpid}]{\fn{waitpid([$pid$][, $options$])}}
+
+FIXME.
+
+\subsubsection[\fn{write}]{\fn{write($file$, $data$)}}
+
+Writes $data$ to $file$. $file$ may be either a FILE handle or integer file descriptor.
+
+Returns an integer representing the number of bytes written (which may be less than \texttt{\#data}) on success, \otherwise{\nil}.
 
 \end{Module}
 
@@ -881,6 +1174,75 @@ Identical to \fn{unix.rewinddir}.
 Identical to \fn{unix.closedir}.
 
 \end{Module}
+
+\chapter{Appendix}
+
+\section[\fn{setrecvaddr}]{\fn{setrecvaddr}: Prepare socket for recvfromto}
+
+\label{setrecvaddr}
+
+A routine to set the socket options necessary for \fn{recvfromto}. Options should be set before binding the socket to an address as on some platforms (e.g. FreeBSD) any packets received beforehand will not be tagged with the destination address.
+
+\begin{example}{lua}
+local unix = require"unix"
+
+local function setrecvaddr(fd, family)
+  local type, level
+
+  if family == unix.AF_INET6 then
+    level = unix.IPPROTO_IPV6
+    type = unix.IPV6_RECVPKTINFO or unix.IPV6_PKTINFO
+  elseif family == unix.AF_INET
+    level = unix.IPPROTO_IP
+    type = unix.IP_RECVDSTADDR or unix.IP_PKTINFO
+  end
+
+  if level and type then
+    return unix.setsockopt(fd, level, type, true)
+  else
+    local errno = unix.EAFNOSUPPORT
+    return false, unix.strerror(errno), errno
+  end
+end
+\end{example}
+
+\clearpage
+
+\section[\fn{strevents}]{\fn{strevents}: Stringify poll events}
+
+\label{setevents}
+
+A routine to translate an integer bitfield of poll events to a string of constant names.
+
+\begin{example}{lua}
+local unix = require"unix"
+
+local function strconst(c, patt)
+  for k,v in pairs(unix) do
+    if c == v and type(k) == "string" and k:match(patt) then
+      return k
+    end
+  end
+end
+
+local function strevent(event)
+  return strconst(event, "^POLL")
+end
+
+local function strevents(events)
+  local t = {}
+  for i=0,30 do
+    if events % 2 == 1 then
+      t[#t + 1] = strevent(2^i)
+      events = events - 1
+    end
+    events = events / 2
+  end
+  return #t > 0 and table.concat(t, ", ") or nil
+end
+\end{example}
+
+\clearpage
 
 %\chapter{Examples}
 %

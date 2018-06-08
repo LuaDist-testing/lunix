@@ -17,7 +17,7 @@
 #include <limits.h>       /* INT_MAX INT_MIN NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX intmax_t uintmax_t */
-#include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
+#include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) grantpt(3) posix_openpt(3) ptsname(3) realloc(3) setenv(3) strtoul(3) unlockpt(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strcmp(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* NSIG struct sigaction sigset_t sigaction(3) sigfillset(3) sigemptyset(3) sigprocmask(2) */
@@ -25,27 +25,29 @@
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* E* errno program_invocation_short_name */
 #include <assert.h>       /* assert(3) static_assert */
-#include <math.h>         /* NAN isnormal(3) signbit(3) */
+#include <math.h>         /* INFINITY NAN ceil(3) fpclassify(3) modf(3) signbit(3) */
 #include <float.h>        /* DBL_HUGE DBL_MANT_DIG FLT_HUGE FLT_MANT_DIG FLT_RADIX LDBL_HUGE LDBL_MANT_DIG */
 #include <locale.h>       /* LC_* setlocale(3) */
 
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
-#include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
+#include <sys/resource.h> /* RLIMIT_* RUSAGE_SELF struct rlimit struct rusage getrlimit(2) getrusage(2) setrlimit(2) */
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
+#include <sys/un.h>       /* struct sockaddr_un */
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
-#include <arpa/inet.h>    /* ntohl(3) */
+#include <arpa/inet.h>    /* inet_ntop(3) ntohs(3) ntohl(3) */
 #include <netinet/in.h>   /* __KAME__ IPPROTO_* */
 #include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
+#include <poll.h>         /* struct pollfd poll(2) */
 
 #define LUA_COMPAT_5_2 1
 #include <lua.h>
@@ -81,6 +83,9 @@
 #endif
 
 #define UCLIBC_PREREQ(M, m, p) (defined __UCLIBC__ && (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p)))
+
+/* NB: uClibc defines __GLIBC__ */
+#define MUSL_MAYBE (__linux && !__BIONIC__ && !__GLIBC__ && !__UCLIBC__)
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
@@ -132,6 +137,30 @@
 #define HAVE_SYS_PROCFS_H (defined _AIX)
 #endif
 
+#ifndef HAVE_SYS_SOCKIO_H
+#define HAVE_SYS_SOCKIO_H (defined __sun)
+#endif
+
+#ifndef HAVE_SYS_SYSCALL_H
+#define HAVE_SYS_SYSCALL_H (defined BSD || __linux__ || __sun)
+#endif
+
+#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
+#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#endif
+
+#ifndef HAVE_STRUCT_IN_PKTINFO
+#define HAVE_STRUCT_IN_PKTINFO HAVE_DECL_IP_PKTINFO
+#endif
+
+#ifndef HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST
+#define HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST (HAVE_DECL_IP_PKTINFO && !__NetBSD__)
+#endif
+
+#ifndef HAVE_STRUCT_IN6_PKTINFO
+#define HAVE_STRUCT_IN6_PKTINFO HAVE_DECL_IPV6_PKTINFO
+#endif
+
 #ifndef HAVE_STRUCT_PSINFO
 #define HAVE_STRUCT_PSINFO (defined _AIX)
 #endif
@@ -180,6 +209,58 @@
 #define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
 #endif
 
+#ifndef HAVE_DECL_CTL_KERN
+#define HAVE_DECL_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_KERN_RANDOM
+#define HAVE_DECL_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_IP_PKTINFO
+#define HAVE_DECL_IP_PKTINFO (defined IP_PKTINFO)
+#endif
+
+#ifndef HAVE_DECL_IP_RECVDSTADDR
+#define HAVE_DECL_IP_RECVDSTADDR (defined IP_RECVDSTADDR)
+#endif
+
+#ifndef HAVE_DECL_IP_SENDSRCADDR
+#define HAVE_DECL_IP_SENDSRCADDR (defined IP_SENDSRCADDR)
+#endif
+
+#ifndef HAVE_DECL_IPV6_PKTINFO
+#define HAVE_DECL_IPV6_PKTINFO (defined IPV6_PKTINFO)
+#endif
+
+#ifndef HAVE_DECL_IPV6_RECVPKTINFO
+#define HAVE_DECL_IPV6_RECVPKTINFO (defined IPV6_RECVPKTINFO)
+#endif
+
+#ifndef HAVE_DECL_RANDOM_UUID
+#define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_RLIM_SAVED_CUR
+#define HAVE_DECL_RLIM_SAVED_CUR (defined RLIM_SAVED_CUR)
+#endif
+
+#ifndef HAVE_DECL_RLIM_SAVED_MAX
+#define HAVE_DECL_RLIM_SAVED_MAX (defined RLIM_SAVED_MAX)
+#endif
+
+#ifndef HAVE_DECL_RLIMIT_AS
+#define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
+#endif
+
+#ifndef HAVE_DECL_SYS_GETRANDOM
+#define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
+#endif
+
+#ifndef HAVE_ACCEPT4
+#define HAVE_ACCEPT4 (defined SOCK_CLOEXEC && !__NetBSD__)
+#endif
+
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
@@ -206,6 +287,10 @@
 
 #ifndef HAVE_DUP3
 #define HAVE_DUP3 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0) || UCLIBC_PREREQ(0,9,34))
+#endif
+
+#ifndef HAVE_FDATASYNC
+#define HAVE_FDATASYNC (!defined __APPLE__ && !__FreeBSD__)
 #endif
 
 #ifndef HAVE_FDOPENDIR
@@ -252,6 +337,10 @@
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
 #endif
 
+#ifndef HAVE_PACCEPT
+#define HAVE_PACCEPT NETBSD_PREREQ(6,0)
+#endif
+
 #ifndef HAVE_POSIX_FADVISE
 #define HAVE_POSIX_FADVISE GLIBC_PREREQ(2,2)
 #endif
@@ -264,6 +353,18 @@
 #define HAVE_PROGRAM_INVOCATION_SHORT_NAME (defined __linux)
 #endif
 
+#ifndef HAVE_PTSNAME_R
+#define HAVE_PTSNAME_R (GLIBC_PREREQ(2,1) || (MUSL_MAYBE && _GNU_SOURCE))
+#endif
+
+#ifndef HAVE_P_XARGV
+#define HAVE_P_XARGV (defined _AIX)
+#endif
+
+#ifndef HAVE_DECL_P_XARGV
+#define HAVE_DECL_P_XARGV 0
+#endif
+
 #ifndef HAVE_SIGTIMEDWAIT
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
@@ -273,31 +374,16 @@
 #endif
 
 #ifndef HAVE_STATIC_ASSERT
-#define HAVE_STATIC_ASSERT (defined static_assert)
+#define HAVE_STATIC_ASSERT_ (!GLIBC_PREREQ(0,0) || HAVE__STATIC_ASSERT) /* glibc doesn't check GCC version */
+#define HAVE_STATIC_ASSERT (defined static_assert && HAVE_STATIC_ASSERT_)
 #endif
 
-#ifndef HAVE_SYS_SOCKIO_H
-#define HAVE_SYS_SOCKIO_H (defined __sun)
-#endif
-
-#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#ifndef HAVE_SYSCALL
+#define HAVE_SYSCALL HAVE_SYS_SYSCALL_H
 #endif
 
 #ifndef HAVE_SYSCTL
 #define HAVE_SYSCTL HAVE_SYS_SYSCTL_H
-#endif
-
-#ifndef HAVE_CTL_KERN
-#define HAVE_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
-#ifndef HAVE_KERN_RANDOM
-#define HAVE_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
-#ifndef HAVE_RANDOM_UUID
-#define HAVE_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
 #ifndef HAVE_STRSIGNAL
@@ -305,11 +391,11 @@
 #endif
 
 #ifndef HAVE_SYS_SIGLIST
-#define HAVE_SYS_SIGLIST 1
+#define HAVE_SYS_SIGLIST (!MUSL_MAYBE && !__sun && !_AIX)
 #endif
 
 #ifndef HAVE_DECL_SYS_SIGLIST
-#define HAVE_DECL_SYS_SIGLIST 1
+#define HAVE_DECL_SYS_SIGLIST HAVE_SYS_SIGLIST
 #endif
 
 #ifndef STRERROR_R_CHAR_P
@@ -337,6 +423,10 @@
 
 #if HAVE_SYS_SOCKIO_H
 #include <sys/sockio.h> /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR */
+#endif
+
+#if HAVE_SYS_SYSCALL_H
+#include <sys/syscall.h> /* SYS_getrandom syscall(2) */
 #endif
 
 #if HAVE_SYS_SYSCTL_H
@@ -567,6 +657,8 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define U_NAN NAN
 #endif
 
+#define u_ispower2(i) (((i) != 0) && (0 == (((i) - 1) & (i))))
+
 static size_t u_power2(size_t i) {
 #if defined SIZE_MAX
 	i--;
@@ -612,13 +704,21 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 } /* u_realloc() */
 
 
+static u_error_t u_growby(char **buf, size_t *size, size_t n) {
+	if (~n < *size)
+		return ENOMEM;
+
+	return u_realloc(buf, size, *size + n);
+} /* u_growby() */
+
+
 static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 	int error;
 
 	if (*p < *size) {
 		(*buf)[(*p)++] = c;
 	} else {
-		if ((error = u_realloc(buf, size, *p + 1)))
+		if ((error = u_growby(buf, size, (*p - *size) + 1)))
 			return error;
 
 		(*buf)[(*p)++] = c;
@@ -628,7 +728,7 @@ static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 } /* u_appendc() */
 
 
-static u_error_t u_reallocarray(char ***arr, size_t *arrsiz, size_t count, size_t size) {
+static u_error_t u_reallocarray(void **arr, size_t *arrsiz, size_t count, size_t size) {
 	void *tmp;
 	size_t tmpsiz;
 
@@ -657,6 +757,19 @@ static u_error_t u_reallocarray(char ***arr, size_t *arrsiz, size_t count, size_
 
 	return 0;
 } /* u_reallocarray() */
+
+#define U_REALLOCARRAY_GENERATE(type, name) \
+static u_error_t name(type *arr, size_t *arrsiz, size_t count) { \
+	void *tmp = *arr; \
+	int error; \
+	if ((error = u_reallocarray(&tmp, arrsiz, count, sizeof **arr))) \
+		return error; \
+	*arr = tmp; \
+	return 0; \
+}
+
+U_REALLOCARRAY_GENERATE(char **, u_reallocarray_char_pp)
+U_REALLOCARRAY_GENERATE(struct pollfd *, u_reallocarray_pollfd)
 
 
 static void *u_memjunk(void *buf, size_t bufsiz) {
@@ -805,27 +918,91 @@ MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 } /* u_in6_clearscope() */
 
 
+static int u_f2ms(const double f) {
+	double ms;
+
+	switch (fpclassify(f)) {
+	case FP_NORMAL:
+		/* if negative, assume arithmetic underflow occured */
+		if (signbit(f))
+			return 0;
+
+		ms = ceil(f * 1000); /* round up so we don't busy poll */
+
+		/* check that INT_MAX + 1 precisely representable by double */
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(u_ispower2((unsigned)INT_MAX + 1), "INT_MAX + 1 not a power of 2");
+
+		if (ms >= (unsigned)INT_MAX + 1)
+			return INT_MAX;
+
+		return ms;
+	case FP_SUBNORMAL:
+		return 1;
+	case FP_ZERO:
+		return 0;
+	case FP_INFINITE:
+	case FP_NAN:
+	default:
+		return -1;
+	}
+} /* u_f2ms() */
+
 static struct timespec *u_f2ts(struct timespec *ts, const double f) {
-	if ((isnormal(f) && !signbit(f)) || f == 0.0) {
-		if (f > INT_MAX) {
-			ts->tv_sec = INT_MAX;
+	double s, ns;
+
+	switch (fpclassify(f)) {
+	case FP_NORMAL:
+		/* if negative, assume arithmetic underflow occured */
+		if (signbit(f))
+			return ts;
+
+		ns = modf(f, &s);
+		ns = ceil(ns * 1000000000);
+
+		if (ns >= 1000000000) {
+			s++;
+			ns = 0;
+		}
+
+		/* check that LONG_MAX + 1 precisely representable by double */
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(u_ispower2((unsigned long)LONG_MAX + 1), "LONG_MAX + 1 not a power of 2");
+
+		if (s >= (unsigned long)LONG_MAX + 1) {
+			ts->tv_sec = LONG_MAX;
 			ts->tv_nsec = 0;
 		} else {
-			ts->tv_sec = (time_t)f;
-			/* SunPRO chokes on modulo here unless unsigned. */
-			ts->tv_nsec = (unsigned long)(f * 1000000000.0) % 1000000000UL;
+			ts->tv_sec = s;
+			ts->tv_nsec = ns;
 		}
 
 		return ts;
-	} else {
+	case FP_SUBNORMAL:
+		ts->tv_sec = 0;
+		ts->tv_nsec = 1;
+
+		return ts;
+	case FP_ZERO:
+		ts->tv_sec = 0;
+		ts->tv_nsec = 0;
+
+		return ts;
+	case FP_INFINITE:
+	case FP_NAN:
+	default:
 		return NULL;
 	}
 } /* u_f2ts() */
 
-
 static double u_ts2f(const struct timespec *ts) {
 	return ts->tv_sec + (ts->tv_nsec / 1000000000.0);
 } /* u_ts2f() */
+
+
+static double u_tv2f(const struct timeval *tv) {
+	return tv->tv_sec + (tv->tv_usec / 1000000.0);
+} /* u_tv2f() */
 
 
 #define ts_timercmp(a, b, cmp) \
@@ -1051,6 +1228,21 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 } /* u_sigtimedwait() */
 
 
+static u_error_t u_sigwait(const sigset_t *set, int *signo) {
+#if defined __OpenBSD__
+	/*
+	 * OpenBSD implements sigwait in libpthread, which might not be
+	 * loaded. Use our u_sigtimedwait implementation.
+	 */
+	return u_sigtimedwait(signo, set, NULL, NULL);
+#elif HAVE_SIGWAIT
+	return sigwait(set, signo);
+#else
+	return u_sigtimedwait(signo, set, NULL, NULL);
+#endif
+} /* u_sigwait() */
+
+
 static size_t u_strlcpy(char *dst, const char *src, size_t lim) {
 	size_t len, n;
 
@@ -1144,9 +1336,43 @@ static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 #define U_FDFLAGS  (U_CLOEXEC)  /* file descriptor flags */
 #define U_FLFLAGS  (~U_FDFLAGS) /* file status flags */
 
+#define U_FLAGS_MIN LLONG_MIN
+#define U_FLAGS_MAX LLONG_MAX
 #define u_flags_t long long
 
 
+/* u_close_nocancel(fd:int)
+ *
+ * Deterministic close(2) wrapper which safely handles signal
+ * interruption[1] and pthread cancellations[2]
+ *
+ * [1] http://austingroupbugs.net/view.php?id=529
+ * [2] https://bugs.chromium.org/p/chromium/issues/detail?id=269623
+ */
+static u_error_t u_close_nocancel(int fd) {
+	int _errno, error;
+
+	_errno = errno;
+#if __APPLE__
+	extern int close$NOCANCEL(int);
+	error = (0 == close$NOCANCEL(fd))? 0 : errno;
+#elif __hpux__
+	do {
+		error = (0 == close(fd))? 0 : errno;
+	} while (error == EINTR);
+#else
+	error = (0 == close(fd))? 0 : errno;
+#endif
+	errno = _errno;
+
+	return (error == EINTR)? 0 : error;
+} /* u_close_nocancel() */
+
+
+/*
+ * NB: This is an awkward function written before settling on a consistent
+ * naming scheme; it should have been named something else.
+ */
 static u_error_t u_close(int *fd) {
 	int error;
 
@@ -1155,7 +1381,7 @@ static u_error_t u_close(int *fd) {
 
 	error = errno;
 
-	(void)close(*fd);
+	(void)u_close_nocancel(*fd);
 	*fd = -1;
 
 	errno = error;
@@ -1252,6 +1478,14 @@ static u_error_t u_fixflags(int fd, u_flags_t flags) {
 
 	return 0;
 } /* u_fixflags() */
+
+
+static void u_freeaddrinfo(struct addrinfo **res) {
+	if (*res) {
+		freeaddrinfo(*res);
+		*res = NULL;
+	}
+} /* u_freeaddrinfo() */
 
 
 static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode) {
@@ -1717,7 +1951,8 @@ error:
 
 
 static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
-	return memcpy(ss, sa, u_sa_len(sa));
+	size_t salen = u_sa_len(sa);
+	return memcpy(ss, sa, MIN(sizeof *ss, salen));
 } /* u_sa_copy() */
 
 
@@ -2069,6 +2304,383 @@ static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t b
 } /* u_getpwnam_r() */
 
 
+static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
+#if HAVE_PTSNAME_R
+	if (!buf || buflen == 0)
+		return ERANGE;
+	if (0 != ptsname_r(fd, buf, buflen))
+		return errno;
+
+	return 0;
+#else
+	const char *path;
+
+	/*
+	 * NB: POSIX doesn't require that errno be set on error. We'll just
+	 * return whatever non-0 errno value we see, EINVAL if 0.
+	 */
+	errno = 0;
+	if (!(path = ptsname(fd)))
+		return (errno)? errno : EINVAL;
+
+	if (u_strlcpy(buf, path, buflen) >= buflen)
+		return ERANGE;
+
+	return 0;
+#endif
+} /* u_ptsname_r() */
+
+
+/*
+ * References for recvfromto and sendtofrom.
+ *
+ *   - IPv6 API
+ *     - https://www.ietf.org/rfc/rfc3542.txt
+ *   - macOS <= 10.10 kernel panic with IP_SENDSRCADDR unless socket bound
+ *     - https://www.irif.fr/~boutier/mac-crash.html
+ *     - https://www.irif.fr/~boutier/progs/kernel-panic.c
+ *   - OpenIKED sendtofrom implementation
+ *     - http://cvsweb.openbsd.org/cgi-bin/cvsweb/src/sbin/iked/util.c?rev=1.32
+ *   - FreeRADIUS recvfromto, sendfromto implementations
+ *     - https://github.com/FreeRADIUS/freeradius-server/blob/release_3_0_12/src/lib/udpfromto.c
+ *   - @ryo recvfromto, sendfromto implementations
+ *     - http://www.nerv.org/~ryo/files/netbsd/sendfromto/sockfromto.c
+ */
+#if HAVE_DECL_IP_RECVDSTADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
+
+static u_error_t u_getsockport(int fd, in_port_t *port, int (*getname)(int, struct sockaddr *, socklen_t *)) {
+	union {
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} addr;
+	socklen_t addrlen = sizeof addr;
+
+	if (0 != getname(fd, (struct sockaddr *)&addr, &addrlen))
+		return errno;
+
+	switch (addr.in.sin_family) {
+	case AF_INET:
+		*port = addr.in.sin_port;
+		return 0;
+	case AF_INET6:
+		*port = addr.in6.sin6_port;
+		return 0;
+	default:
+		return EAFNOSUPPORT;
+	}
+} /* u_getsockport() */
+
+/*
+ * NOTE: Initialization is better done by the application code, because
+ *
+ *   1) setsockopt should happen before binding. On FreeBSD (confirmed 10.1)
+ *      packets received in the kernel before the option has been set will
+ *      not be tagged with the reception address when dequeued with recvmsg.
+ *
+ *   2) For sendtofrom to work on FreeBSD (confirmed 10.1) the sending
+ *      socket must also be explicitly bound to INADDR_ANY. This means that
+ *      we cannot make recvfromto/sendtofrom magically work without the
+ *      caller performing some initializations peculiar to this API.
+ *
+ *   3) macOS <= 10.10 (confirmed 10.10) has a bug that causes a kernel panic
+ *      when using IP_SENDSRCADDR on an unbound socket. Handling this issue
+ *      is too messy and brittle to do outside the caller's control.
+ *
+ *   4) It invokes a superfluous setsockopt for every call. We still do a
+ *      getsockname on every call, but this can be optimized in the future
+ *      by allowing the Lua caller to provide a preinitialized structure.
+ */
+#if 0
+static u_error_t u_recvfromto_init(int fd, in_port_t *port) {
+	union {
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} addr;
+	socklen_t addrlen = sizeof addr;
+	int level = 0, type = 0;
+
+	memset(&addr, 0, sizeof addr);
+
+	if (0 != getsockname(fd, (struct sockaddr *)&addr, &addrlen))
+		return errno;
+
+	switch (addr.in.sin_family) {
+	case AF_INET:
+		*port = addr.in.sin_port;
+#if HAVE_DECL_IP_RECVDSTADDR
+		level = IPPROTO_IP;
+		type = IP_RECVDSTADDR;
+#elif HAVE_DECL_IP_PKTINFO
+		level = IPPROTO_IP;
+		type = IP_PKTINFO;
+#endif
+		break;
+	case AF_INET6:
+		*port = addr.in6.sin6_port;
+#if HAVE_DECL_IPV6_RECVPKTINFO
+		level = IPPROTO_IPV6;
+		type = IPV6_RECVPKTINFO;
+#elif HAVE_DECL_IPV6_PKTINFO
+		level = IPPROTO_IPV6;
+		type = IPV6_PKTINFO;
+#endif
+		break;
+	}
+
+	if (0 != setsockopt(fd, level, type, &(int){ 1 }, sizeof (int)))
+		return errno;
+
+	return 0;
+}
+#endif
+
+static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct sockaddr *from, size_t *fromlen, struct sockaddr *to, size_t *tolen, u_error_t *error) {
+	in_port_t to_port = 0;
+	struct iovec iov;
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct sockaddr_in *in;
+#if HAVE_STRUCT_IN_PKTINFO
+	struct in_pktinfo pkt;
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+	struct sockaddr_in6 *in6;
+	struct in6_pktinfo pkt6;
+#endif
+	union {
+		struct cmsghdr hdr;
+#if HAVE_STRUCT_IN_PKTINFO
+		char inbuf[CMSG_SPACE(sizeof pkt)];
+#else
+		char inbuf[CMSG_SPACE(sizeof in->sin_addr)];
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+		char in6buf[CMSG_SPACE(sizeof pkt6)];
+#endif
+	} cmsgbuf;
+	ssize_t n;
+
+	if ((*error = u_getsockport(fd, &to_port, &getsockname)))
+		return -1;
+
+	memset(&msg, 0, sizeof msg);
+	memset(&cmsgbuf, 0, sizeof cmsgbuf);
+	memset(from, 0, *fromlen);
+	memset(to, 0, *tolen);
+
+	iov.iov_base = buf;
+	iov.iov_len = lim;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_name = (void *)from;
+	msg.msg_namelen = *fromlen;
+	msg.msg_control = &cmsgbuf;
+	msg.msg_controllen = sizeof cmsgbuf;
+
+	if (-1 == (n = recvmsg(fd, &msg, flags))) {
+		*error = errno;
+		return -1;
+	}
+
+	*fromlen = msg.msg_namelen;
+
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+#if HAVE_DECL_IP_RECVDSTADDR
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVDSTADDR) {
+			if (*tolen < sizeof *in)
+				goto inval;
+			in = (struct sockaddr_in *)to;
+			in->sin_family = AF_INET;
+#if HAVE_SOCKADDR_SA_LEN
+			in->sin_len = sizeof *in;
+#endif
+			in->sin_port = to_port;
+			memcpy(&in->sin_addr, CMSG_DATA(cmsg), sizeof in->sin_addr);
+			*tolen = sizeof *in;
+			break;
+		}
+#endif
+
+#if HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
+			memcpy(&pkt, CMSG_DATA(cmsg), sizeof pkt);
+			if (*tolen < sizeof *in)
+				goto inval;
+			in = (struct sockaddr_in *)to;
+			in->sin_family = AF_INET;
+#if HAVE_SOCKADDR_SA_LEN
+			in->sin_len = sizeof *in;
+#endif
+			in->sin_port = to_port;
+			in->sin_addr = pkt.ipi_addr;
+			*tolen = sizeof *in;
+			break;
+		}
+#endif
+
+#if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
+		if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+			memcpy(&pkt6, CMSG_DATA(cmsg), sizeof pkt6);
+			if (*tolen < sizeof *in6)
+				goto inval;
+			in6 = (struct sockaddr_in6 *)to;
+			in6->sin6_family = AF_INET6;
+#if HAVE_SOCKADDR_SA_LEN
+			in6->sin6_len = sizeof *in6;
+#endif
+			in6->sin6_port = to_port;
+			in6->sin6_addr = pkt6.ipi6_addr;
+			if (IN6_IS_SCOPE_LINKLOCAL(&pkt6.ipi6_addr))
+				in6->sin6_scope_id = pkt6.ipi6_ifindex;
+			*tolen = sizeof *in6;
+			break;
+		}
+#endif
+	}
+
+	return n;
+inval:
+	*error = EINVAL;
+	return -1;
+} /* u_recvfromto() */
+
+#else
+
+static ssize_t u_recvfromto(int fd, const void *src, size_t len, int flags, const struct sockaddr *from, size_t *fromlen, const struct sockaddr *to, size_t *tolen, u_error_t *error) {
+	(void)fd;
+	(void)src;
+	(void)len;
+	(void)flags;
+	(void)from;
+	(void)fromlen;
+	(void)to;
+	(void)tolen;
+
+	*error = ENOTSUP;
+	return -1;
+} /* u_recvfromto() */
+
+#endif
+
+#if HAVE_DECL_IP_SENDSRCADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
+
+static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, const struct sockaddr *to, size_t tolen, const struct sockaddr *from, size_t fromlen, u_error_t *error) {
+	struct iovec iov;
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct sockaddr_in *in;
+#if HAVE_STRUCT_IN_PKTINFO
+	struct in_pktinfo pkt;
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+	struct sockaddr_in6 *in6;
+	struct in6_pktinfo pkt6;
+#endif
+	union {
+		struct cmsghdr hdr;
+#if HAVE_STRUCT_IN_PKTINFO
+		char inbuf[CMSG_SPACE(sizeof pkt)];
+#else
+		char inbuf[CMSG_SPACE(sizeof (struct in_addr))];
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+		char in6buf[CMSG_SPACE(sizeof pkt6)];
+#endif
+	} cmsgbuf;
+	ssize_t n;
+
+	memset(&msg, 0, sizeof msg);
+	memset(&cmsgbuf, 0, sizeof cmsgbuf);
+
+	iov.iov_base = (void *)buf;
+	iov.iov_len = len;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_name = (void *)to;
+	msg.msg_namelen = tolen;
+	msg.msg_control = &cmsgbuf;
+	msg.msg_controllen = sizeof cmsgbuf;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+
+	switch (from->sa_family) {
+#if HAVE_DECL_IP_SENDSRCADDR
+	case AF_INET:
+		msg.msg_controllen = sizeof cmsgbuf.inbuf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof in->sin_addr);
+		cmsg->cmsg_level = IPPROTO_IP;
+		cmsg->cmsg_type = IP_SENDSRCADDR;
+		if (sizeof *in < fromlen)
+			goto inval;
+		in = (struct sockaddr_in *)from;
+		memcpy(CMSG_DATA(cmsg), &in->sin_addr, sizeof in->sin_addr);
+
+		break;
+#elif HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST
+	case AF_INET:
+		msg.msg_controllen = sizeof cmsgbuf.inbuf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof pkt);
+		cmsg->cmsg_level = IPPROTO_IP;
+		cmsg->cmsg_type = IP_PKTINFO;
+		if (sizeof *in < fromlen)
+			goto inval;
+		in = (struct sockaddr_in *)from;
+		memset(&pkt, 0, sizeof pkt);
+		pkt.ipi_spec_dst = in->sin_addr;
+		memcpy(CMSG_DATA(cmsg), &pkt, sizeof pkt);
+
+		break;
+#endif
+#if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
+	case AF_INET6:
+		msg.msg_controllen = sizeof cmsgbuf.in6buf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof pkt6);
+		cmsg->cmsg_level = IPPROTO_IPV6;
+		cmsg->cmsg_type = IPV6_PKTINFO;
+		if (sizeof *in6 < fromlen)
+			goto inval;
+		in6 = (struct sockaddr_in6 *)from;
+		memset(&pkt6, 0, sizeof pkt6);
+		pkt6.ipi6_addr = in6->sin6_addr;
+		if (IN6_IS_SCOPE_LINKLOCAL(&in6->sin6_addr))
+			pkt6.ipi6_ifindex = in6->sin6_scope_id;
+		memcpy(CMSG_DATA(cmsg), &pkt6, sizeof pkt6);
+
+		break;
+#endif
+	default:
+		*error = EAFNOSUPPORT;
+		return -1;
+	}
+
+	if (-1 == (n = sendmsg(fd, &msg, flags)))
+		*error = errno;
+
+	return n;
+inval:
+	*error = EINVAL;
+	return -1;
+} /* u_sendtofrom() */
+
+#else
+
+static ssize_t u_sendtofrom(int fd, const void *src, size_t len, int flags, const struct sockaddr *to, size_t tolen, const struct sockaddr *from, size_t fromlen, u_error_t *error) {
+	(void)fd;
+	(void)src;
+	(void)len;
+	(void)flags;
+	(void)to;
+	(void)tolen;
+	(void)from;
+	(void)fromlen;
+
+	*error = ENOTSUP;
+	return -1;
+} /* u_sendtofrom() */
+
+#endif
+
+
 #if !HAVE_ARC4RANDOM
 
 #define UNIXL_RANDOM_INITIALIZER { .fd = -1, }
@@ -2141,25 +2753,30 @@ static void arc4_stir(unixL_Random *R, int force) {
 	if (R->count > 0 && R->pid == getpid() && !force)
 		return;
 
-#if HAVE_SYSCTL && HAVE_CTL_KERN && HAVE_KERN_RANDOM && HAVE_RANDOM_UUID
-	{	
-		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
+#if HAVE_SYSCALL && HAVE_DECL_SYS_GETRANDOM
+	while (count < sizeof bytes) {
+		int n = syscall(SYS_getrandom, &bytes[count], sizeof bytes - count, 0);
 
-		while (count < sizeof bytes) {
-			n = sizeof bytes - count;
+		if (n == -1)
+			break;
 
-			if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
-				break;
-
-			count += n;
-		}
-
-		if (count == sizeof bytes)
-			goto stir;
+		count += n;
 	}
 #endif
 
-	{
+#if HAVE_SYSCTL && HAVE_DECL_CTL_KERN && HAVE_DECL_KERN_RANDOM && HAVE_DECL_RANDOM_UUID
+	while (count < sizeof bytes) {
+		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
+		size_t n = sizeof bytes - count;
+
+		if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
+			break;
+
+		count += n;
+	}
+#endif
+
+	if (count < sizeof bytes) {
 		if (R->fd == -1 && 0 != u_open(&R->fd, "/dev/urandom", O_RDONLY|U_CLOEXEC, 0))
 			goto stir;
 
@@ -2190,7 +2807,7 @@ stir:
 	for (n = 0; n < 1024; n++)
 		arc4_getbyte(R);
 
-	R->count = 1600000;
+	R->count = 1600000 / 10; /* reseed sooner than original construct */
 	R->pid = getpid();
 } /* arc4_stir() */
 
@@ -2214,6 +2831,14 @@ static uint32_t arc4_getword(unixL_Random *R) {
 
 
 /*
+ * E X T E R N A L  C O M P A T  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#include "unix-getopt.c"
+
+
+/*
  * Extends luaL_newmetatable by adding all the relevant fields to the
  * metatable using the standard pattern (placing all the methods in the
  * __index metafield). Leaves the metatable on the stack.
@@ -2227,20 +2852,20 @@ static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *me
 	/* add metamethods */
 	for (i = 0; i < nup; i++)
 		lua_pushvalue(L, -1 - nup);
-
 	luaL_setfuncs(L, metamethods, nup);
 
 	/* add methods */
-	for (n = 0; methods[n].name; n++)
-		;;
-	lua_createtable(L, 0, n);
+	if (methods) {
+		for (n = 0; methods[n].name; n++)
+			;;
+		lua_createtable(L, 0, n);
 
-	for (i = 0; i < nup; i++)
-		lua_pushvalue(L, -2 - nup);
+		for (i = 0; i < nup; i++)
+			lua_pushvalue(L, -2 - nup);
+		luaL_setfuncs(L, methods, nup);
 
-	luaL_setfuncs(L, methods, nup);
-
-	lua_setfield(L, -2, "__index");
+		lua_setfield(L, -2, "__index");
+	}
 
 	return 1;
 } /* unixL_newmetatable() */
@@ -2307,6 +2932,20 @@ typedef struct unixL_State {
 		char path[64];
 		int error;
 	} fd;
+
+	struct {
+		int opterr, optind, optopt, arg0;
+	} opt;
+
+	struct {
+		int fd;
+		struct addrinfo *res;
+		struct {
+			struct pollfd *buf;
+			size_t bufsiz;
+		} fds;
+		size_t nfds;
+	} net;
 } unixL_State;
 
 static const unixL_State unixL_initializer = {
@@ -2317,6 +2956,7 @@ static const unixL_State unixL_initializer = {
 #endif
 #if USE_CLOCK_GET_TIME
 	.tm = { MACH_PORT_NULL, MACH_PORT_NULL },
+	.net = { -1, NULL },
 #endif
 };
 
@@ -2408,11 +3048,20 @@ static int unixL_init(lua_State *L, unixL_State *U) {
 #endif
 #endif
 
+	U->opt.opterr = 1;
+	U->opt.optind = 1;
+
 	return 0;
 } /* unixL_init() */
 
 
 static void unixL_destroy(unixL_State *U) {
+	free(U->net.fds.buf);
+	U->net.fds.buf = NULL;
+	U->net.fds.bufsiz = 0;
+	u_close(&U->net.fd);
+	u_freeaddrinfo(&U->net.res);
+
 #if USE_CLOCK_GET_TIME
 	/* NOTE: no need to deallocate mach_task_self() port */
 	if (MACH_PORT_NULL != U->tm.clock) {
@@ -2460,6 +3109,26 @@ static unixL_State *unixL_getstate(lua_State *L) {
 	return lua_touserdata(L, lua_upvalueindex(1));
 } /* unixL_getstate() */
 
+static struct sockaddr *unixL_newsockaddr(lua_State *, const void *, size_t);
+
+static u_error_t unixL_getsockname(lua_State *L, int fd, int (*getname)(int, struct sockaddr *, socklen_t *)) {
+	unixL_State *U = unixL_getstate(L);
+	socklen_t salen = sizeof (struct sockaddr);
+	int error;
+
+	do {
+		if (U->bufsiz < salen && (error = u_realloc(&U->buf, &U->bufsiz, salen)))
+			return error;
+		salen = MAX(INT_MAX, U->bufsiz);
+		if (0 != getname(fd, (struct sockaddr *)U->buf, &salen))
+			return errno;
+	} while (salen > U->bufsiz);
+
+	unixL_newsockaddr(L, U->buf, salen);
+
+	return 1;
+} /* unixL_getsockname() */
+
 
 #if !HAVE_ARC4RANDOM
 static uint32_t unixL_random(lua_State *L) {
@@ -2477,7 +3146,6 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
 static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsigned char *charmap, size_t mapsiz) {
 	unsigned char *p = buf, *pe = p + bufsiz;
 	uint32_t r;
-	size_t i;
 
 	while (p < pe) {
 		r = unixL_random(L);
@@ -2503,6 +3171,7 @@ static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsig
  * 	              returns NULL on bad signo
  * 	Linux/glibc : safe'ish since 1998; TLS buffer for bad signo;
  * 	              gettext for good signo (is gettext thread-safe?)
+ * 	 Linux/musl : safe; localized; locale structures never deallocated
  * 	    FreeBSD : safe since 8.1; TLS buffer
  * 	     NetBSD : not safe as of 6.1; static buffer
  * 	    OpenBSD : not safe as of 5.6; static buffer
@@ -2517,11 +3186,18 @@ static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsig
  * has _sys_siglistp instead of sys_siglist. But we use strsignal on those
  * platforms.
  */
+#ifndef HAVE_MTSAFE_STRSIGNAL
+#define HAVE_MTSAFE_STRSIGNAL_ \
+	(__sun || GLIBC_PREREQ(0,0) || MUSL_MAYBE || \
+	 FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX)
+#define HAVE_MTSAFE_STRSIGNAL (HAVE_STRSIGNAL && HAVE_MTSAFE_STRSIGNAL_)
+#endif
+
 static const char *unixL_strsignal(lua_State *L, int signo) {
 	const char *info;
 	unixL_State *U;
 
-#if HAVE_STRSIGNAL && (USE_STRSIGNAL || __sun || GLIBC_PREREQ(0,0) || FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX)
+#if HAVE_MTSAFE_STRSIGNAL
 	/* AIX strsignal(3) cannot handle bad signo */
 	if (signo >= 0 && signo < NSIG && (info = strsignal(signo)))
 		return info;
@@ -2773,16 +3449,23 @@ static unixL_Integer unixL_optinteger(lua_State *L, int index, unixL_Integer def
 	return unixL_checkinteger(L, index, min, max);
 } /* unixL_optinteger() */
 
-static unixL_Unsigned unixL_optunsigned(lua_State *L, int index, unixL_Unsigned def, unixL_Unsigned min, unixL_Unsigned max) {
-	if (lua_isnoneornil(L, index))
-		return def;
-
-	return unixL_checkunsigned(L, index, min, max);
-} /* unixL_optunsigned() */
-
 static int unixL_checkint(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
 } /* unixL_checkint() */
+
+static int unixL_optint(lua_State *L, int index, int def) {
+	return unixL_optinteger(L, index, def, INT_MIN, INT_MAX);
+} /* unixL_optint() */
+
+static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
+	int i;
+
+	lua_getfield(L, index, name);
+	i = unixL_optint(L, -1, def);
+	lua_pop(L, 1);
+
+	return i;
+} /* unixL_optfint() */
 
 static size_t unixL_checksize(lua_State *L, int index) {
 	return unixL_checkunsigned(L, index, 0, MIN(UNIXL_UNSIGNED_MAX, SIZE_MAX));
@@ -2799,6 +3482,13 @@ static off_t unixL_checkoff(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, MAX(UNIXL_INTEGER_MIN, U_TMIN(off_t)), MIN(UNIXL_INTEGER_MAX, U_TMAX(off_t)));
 } /* unixL_checkoff() */
 
+static off_t unixL_optoff(lua_State *L, int index, off_t def) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return unixL_checkoff(L, index);
+} /* unixL_optoff() */
+
 static void unixL_pushoff(lua_State *L, off_t off) {
 	if (off < UNIXL_INTEGER_MIN || off > UNIXL_INTEGER_MAX)
 		luaL_error(L, "off_t value not representable as integer");
@@ -2806,6 +3496,66 @@ static void unixL_pushoff(lua_State *L, off_t off) {
 	unixL_pushunsigned(L, off);
 } /* unixL_pushoff() */
 
+static struct sockaddr *unixL_newsockaddr(lua_State *L, const void *addr, size_t addrlen) {
+	void *ud;
+
+	ud = lua_newuserdata(L, addrlen);
+	memcpy(ud, addr, addrlen);
+	luaL_setmetatable(L, "struct sockaddr");
+
+	return ud;
+} /* unixL_newsockaddr() */
+
+static struct sockaddr *unixL_tosockaddr(lua_State *L, int index, size_t *len) {
+	if (luaL_testudata(L, index, "struct sockaddr")) {
+		*len = lua_rawlen(L, index);
+		return lua_touserdata(L, index);
+	} else if (lua_istable(L, index)) {
+		unixL_State *U = unixL_getstate(L);
+		int otop = lua_gettop(L);
+		struct addrinfo hints = { 0 };
+		struct sockaddr *addr;
+		int error;
+
+		index = lua_absindex(L, index);
+
+		hints.ai_family = unixL_optfint(L, index, "family", AF_UNSPEC);
+		/* Solaris errors with EAI_SERVICE unless we specify a socktype */
+		hints.ai_socktype = unixL_optfint(L, index, "socktype", SOCK_STREAM);
+		hints.ai_protocol = unixL_optfint(L, index, "protocol", 0);
+
+		lua_getfield(L, index, "addr");
+		lua_getfield(L, index, "port");
+
+		u_freeaddrinfo(&U->net.res);
+		error = getaddrinfo(lua_tostring(L, -2), lua_tostring(L, -1), &hints, &U->net.res);
+		if (error) {
+			U->net.res = NULL;
+			goto null;
+		}
+		addr = unixL_newsockaddr(L, U->net.res->ai_addr, U->net.res->ai_addrlen);
+		*len = U->net.res->ai_addrlen;
+		u_freeaddrinfo(&U->net.res);
+
+		lua_replace(L, index);
+		lua_settop(L, otop);
+
+		return addr;
+	} else {
+null:
+		*len = 0;
+		return NULL;
+	}
+} /* unixL_tosockaddr() */
+
+static struct sockaddr *unixL_checksockaddr(lua_State *L, int index, size_t *len) {
+	struct sockaddr *sa;
+
+	if (!(sa = unixL_tosockaddr(L, index, len)))
+		luaL_error(L, "expected struct sockaddr, got %s", lua_typename(L, lua_type(L, index)));
+
+	return sa;
+} /* unixL_checksockaddr() */
 
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
 	int top = lua_gettop(L), fc;
@@ -2858,7 +3608,7 @@ static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags
 	char path[sizeof ((unixL_State *)0)->fd.path];
 	const char *dev, *ino, *nul;
 	struct stat st = { 0 };
-	int n, error;
+	int error;
 
 	dev = strstr(fspath, "%"FD_PRIdev);
 	ino = strstr(fspath, "%"FD_PRIino);
@@ -3021,8 +3771,6 @@ static u_error_t fd_init(lua_State *L, unixL_State *U) {
 
 	error = ENOTSUP;
 	goto error;
-syerr:
-	error = errno;
 error:
 	u_close(&pipefd[0]);
 	u_close(&pipefd[1]);
@@ -3233,6 +3981,11 @@ static gid_t unixL_checkgid(lua_State *L, int index) {
 
 	return unixL_optgid(L, index, -1);
 } /* unixL_checkgid() */
+
+
+static pid_t unixL_checkpid(lua_State *L, int index) {
+	return unixL_checkinteger(L, index, U_TMIN(pid_t), U_TMAX(pid_t));
+} /* unixL_checkpid() */
 
 
 #if HAVE_STRUCT_PSINFO
@@ -3704,17 +4457,6 @@ static void unixL_checkflags(lua_State *L, int index, const char **mode, u_flags
 } /* unixL_checkflags() */
 
 
-static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
-	int i;
-
-	lua_getfield(L, index, name);
-	i = (lua_isnil(L, -1))? def : luaL_checkint(L, -1);
-	lua_pop(L, 1);
-
-	return i;
-} /* unixL_optfint() */
-
-
 static struct tm *unixL_checktm(lua_State *L, int index, struct tm *tm) {
 	luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -4131,6 +4873,56 @@ static const luaL_Reg sighandler_metamethods[] = {
 }; /* sighandler_metamethods[] */
 
 
+static int unix_accept(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	int flags = unixL_optint(L, 2, 0);
+	socklen_t salen;
+	int error;
+
+	u_close(&U->net.fd);
+
+	if (U->bufsiz < sizeof (struct sockaddr) && (error = u_realloc(&U->buf, &U->bufsiz, sizeof (struct sockaddr))))
+		return unixL_pusherror(L, error, "accept", "~$#");
+
+	salen = MAX(INT_MAX, U->bufsiz);
+#if HAVE_ACCEPT4
+	U->net.fd = accept4(fd, (struct sockaddr *)U->buf, &salen, flags);
+#elif HAVE_PACCEPT
+	U->net.fd = paccept(fd, (struct sockaddr *)U->buf, &salen, NULL, flags);
+#else
+	U->net.fd = accept(fd, (struct sockaddr *)U->buf, &salen);
+#endif
+	if (U->net.fd == -1)
+		goto syerr;
+
+	lua_pushinteger(L, U->net.fd);
+	if (salen <= U->bufsiz) {
+		unixL_newsockaddr(L, U->buf, salen);
+	} else {
+		if ((error = unixL_getsockname(L, U->net.fd, &getpeername)))
+			goto error;
+	}
+	U->net.fd = -1;
+
+	return 2;
+syerr:
+	error = errno;
+error:
+	u_close(&U->net.fd);
+	return unixL_pusherror(L, error, "accept", "~$#");
+} /* unix_accept() */
+
+
+static int unix_alarm(lua_State *L) {
+	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
+
+	unixL_pushunsigned(L, alarm(n));
+
+	return 1;
+} /* unix_alarm() */
+
+
 static int unix_arc4random(lua_State *L) {
 	unixL_pushunsigned(L, unixL_random(L));
 
@@ -4212,6 +5004,20 @@ static int unix_arc4random_uniform(lua_State *L) {
 
 	return 1;
 } /* unix_arc4random_uniform() */
+
+
+static int unix_bind(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t addrlen;
+	struct sockaddr *addr = unixL_checksockaddr(L, 2, &addrlen);
+
+	if (0 != bind(fd, addr, addrlen))
+		return unixL_pusherror(L, errno, "bind", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_bind() */
 
 
 static int unix_bitand(lua_State *L) {
@@ -4427,6 +5233,54 @@ static int unix_compl(lua_State *L) {
 } /* unix_compl() */
 
 
+static int unix_connect(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t addrlen;
+	struct sockaddr *addr = unixL_checksockaddr(L, 2, &addrlen);
+
+	if (0 != connect(fd, addr, addrlen))
+		return unixL_pusherror(L, errno, "connect", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_connect() */
+
+
+static int unix_close(lua_State *L) {
+	if (lua_isuserdata(L, 1) || lua_istable(L, 1)) {
+		int nret;
+
+		lua_settop(L, 1);
+
+		lua_getfield(L, 1, "close");
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, LUA_MULTRET);
+
+		if ((nret = lua_gettop(L) - 1)) {
+			return nret;
+		} else {
+			/*
+			 * Lua 5.1's closef handler only returns value on
+			 * failure.
+			 */
+			lua_pushboolean(L, 1);
+			return 1;
+		}
+	} else {
+		int fd = unixL_checkinteger(L, 1, U_TMIN(int), U_TMAX(int));
+		int error;
+
+		if ((error = u_close_nocancel(fd)))
+			return unixL_pusherror(L, error, "close", "0$#");
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+	}
+} /* unix_close() */
+
+
 static int dir_close(lua_State *);
 
 static int unix_closedir(lua_State *L) {
@@ -4463,10 +5317,27 @@ static int unix_dup2(lua_State *L) {
 } /* unix_dup2() */
 
 
+#if HAVE_DUP3
+static int unix_dup3(lua_State *L) {
+	int ofd = unixL_checkfileno(L, 1);
+	int nfd = unixL_checkfileno(L, 2);
+	u_flags_t flags = unixL_checkinteger(L, 3, U_FLAGS_MIN, U_FLAGS_MAX);
+	int error;
+
+	if ((error = u_dup2(ofd, nfd, flags)))
+		return unixL_pusherror(L, error, "dup2", "~$#");
+
+	lua_pushinteger(L, nfd);
+
+	return 1;
+} /* unix_dup3() */
+#endif
+
+
 static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 	int error;
 
-	if ((error = u_reallocarray(&U->exec.arr, &U->exec.arrsiz, (*arrp)+1, sizeof *U->exec.arr)))
+	if ((error = u_reallocarray_char_pp(&U->exec.arr, &U->exec.arrsiz, (*arrp)+1)))
 		return error;
 
 	U->exec.arr[(*arrp)++] = (char *)(s);
@@ -4803,6 +5674,20 @@ error:
 } /* unix_fcntl() */
 
 
+#if HAVE_FDATASYNC
+static int unix_fdatasync(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != fdatasync(fd))
+		return unixL_pusherror(L, errno, "fdatasync", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_fdatasync() */
+#endif
+
+
 static int unix_fdopen(lua_State *L) {
 	u_flags_t flags;
 	const char *mode;
@@ -4886,6 +5771,18 @@ static int unix_flockfile(lua_State *L) {
 
 	return 1;
 } /* unix_flockfile() */
+
+
+static int unix_fsync(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != fsync(fd))
+		return unixL_pusherror(L, errno, "fsync", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_fsync() */
 
 
 static int unix_ftrylockfile(lua_State *L) {
@@ -5118,6 +6015,25 @@ static int gai_nextai(lua_State *L) {
 	}
 } /* gai_nextai() */
 
+static int gai_pusherror(lua_State *L, int error) {
+	if (error == EAI_SYSTEM) {
+		int syerr = errno;
+
+		lua_pushnil(L);
+		lua_pushstring(L, unixL_strerror(L, syerr));
+		lua_pushinteger(L, error);
+		lua_pushinteger(L, syerr);
+
+		return 4;
+	} else {
+		lua_pushnil(L);
+		lua_pushstring(L, gai_strerror(error));
+		lua_pushinteger(L, error);
+
+		return 3;
+	}
+} /* gai_pusherror() */
+
 static int unix_getaddrinfo(lua_State *L) {
 	const char *host = luaL_optstring(L, 1, NULL);
 	const char *serv = luaL_optstring(L, 2, NULL);
@@ -5143,24 +6059,8 @@ static int unix_getaddrinfo(lua_State *L) {
 	*res = NULL;
 	luaL_setmetatable(L, "struct addrinfo*");
 
-	if ((error = getaddrinfo(host, serv, &hints, res))) {
-		if (error == EAI_SYSTEM) {
-			int syerr = errno;
-
-			lua_pushnil(L);
-			lua_pushstring(L, unixL_strerror(L, syerr));
-			lua_pushinteger(L, error);
-			lua_pushinteger(L, syerr);
-
-			return 4;
-		} else {
-			lua_pushnil(L);
-			lua_pushstring(L, gai_strerror(error));
-			lua_pushinteger(L, error);
-
-			return 3;
-		}
-	}
+	if ((error = getaddrinfo(host, serv, &hints, res)))
+		return gai_pusherror(L, error);
 
 	lua_replace(L, 1);
 
@@ -5176,10 +6076,7 @@ static int unix_getaddrinfo(lua_State *L) {
 static int gai__gc(lua_State *L) {
 	struct addrinfo **res = luaL_checkudata(L, 1, "struct addrinfo*");
 
-	if (*res) {
-		freeaddrinfo(*res);
-		*res = NULL;
-	}
+	u_freeaddrinfo(res);
 
 	return 0;
 } /* gai__gc() */
@@ -5574,6 +6471,161 @@ static const luaL_Reg ifs_metamethods[] = {
 }; /* ifs_metamethods[] */
 
 
+static int unix_getnameinfo(lua_State *L) {
+	size_t salen;
+	const struct sockaddr *sa = unixL_checksockaddr(L, 1, &salen);
+	int flags = luaL_optint(L, 2, 0);
+	char host[NI_MAXHOST];
+	char serv[NI_MAXSERV];
+	int error;
+
+	if ((error = getnameinfo(sa, salen, host, sizeof host, serv, sizeof serv, flags)))
+		return gai_pusherror(L, error);
+
+	lua_pushstring(L, host);
+	lua_pushstring(L, serv);
+
+	return 2;
+} /* unix_getnameinfo() */
+
+
+static void getopt_pushoptc(lua_State *L, int optc) {
+	char ch = (char)(unsigned char)optc;
+	lua_pushlstring(L, &ch, 1);
+} /* getopt_pushoptc() */
+
+static int getopt_nextopt(lua_State *L) {
+	unixL_State *U = lua_touserdata(L, lua_upvalueindex(1));
+	struct u_getopt_r *opts = lua_touserdata(L, lua_upvalueindex(2));
+	/* NB: upvalue 3 is our string anchoring table */
+	char **argv = lua_touserdata(L, lua_upvalueindex(4));
+	int argc = lua_tointeger(L, lua_upvalueindex(5));
+	const char *shortopts = lua_tostring(L, lua_upvalueindex(6));
+	int optc;
+
+	optc = u_getopt_r(argc, argv, shortopts, opts);
+	U->opt.optind = opts->optind;
+	U->opt.optopt = opts->optopt;
+
+	if (optc == -1)
+		return 0;
+
+	getopt_pushoptc(L, optc);
+
+	if (optc == ':' || optc == '?') {
+		getopt_pushoptc(L, U->opt.optopt);
+	} else if (opts->optarg) {
+		lua_pushstring(L, opts->optarg);
+	} else {
+		lua_pushnil(L);
+	}
+
+	/*
+	 * NB: If returning optind in the future then adjust by arg0 to
+	 * adhere to Lua indexing semantics if U->opt.arg0. See unix__index
+	 * for unix.optint indexing.
+	 */
+
+	return 2;
+} /* getopt_nextopt() */
+
+static int getopt_pushargs(lua_State *L, int index) {
+	unixL_State *U = unixL_getstate(L);
+	const char **argv;
+	size_t arg0, argc, i;
+	int isnil;
+
+	index = lua_absindex(L, index);
+	luaL_checktype(L, index, LUA_TTABLE);
+
+	/* determine whether table is 0-indexed or 1-indexed */
+	lua_rawgeti(L, index, 0);
+	U->opt.arg0 = arg0 = lua_isnil(L, -1)? 1 : 0;
+	lua_pop(L, 1);
+
+	/* count number of arguments */
+	for (i = arg0, argc = 0, isnil = 0; i < SIZE_MAX && !isnil; i++, argc += !isnil) {
+		lua_rawgeti(L, index, i);
+		isnil = lua_isnil(L, -1);
+		lua_pop(L, 1);
+	}
+	if (argc >= INT_MAX || argc >= (size_t)-1 / sizeof *argv)
+		return unixL_pusherror(L, ENOMEM, "getopt", "~$#");
+
+	/* duplicate argument table to guarantee strings remained anchored */
+	lua_createtable(L, argc, 0);
+	argv = lua_newuserdata(L, (argc + 1) * sizeof *argv);
+	for (i = 0; i < argc; i++) {
+		lua_rawgeti(L, index, i + arg0);
+		argv[i] = lua_tostring(L, -1); /* coerce to string */
+		lua_rawseti(L, -3, i + arg0); /* anchor coerced string */
+	}
+	argv[argc] = NULL;
+
+	lua_pushinteger(L, argc);
+
+	return 3;
+} /* getopt_pushargs() */
+
+static int unix_getopt(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	struct u_getopt_r *opts;
+
+	lua_settop(L, 2);
+	luaL_checktype(L, 1, LUA_TTABLE);
+	luaL_checkstring(L, 2);
+
+	/* push unixL_State */
+	lua_pushvalue(L, lua_upvalueindex(1));
+
+	/* push getopt_r state */
+	opts = lua_newuserdata(L, sizeof *opts);
+	U_GETOPT_R_INIT(opts);
+	opts->opterr = U->opt.opterr;
+
+	/* push arguments as 3 values: local table, argv array, argc int */
+	getopt_pushargs(L, 1); /* pushes 3 values */
+
+	/* push shortopts */
+	lua_pushvalue(L, 2);
+
+	lua_pushcclosure(L, &getopt_nextopt, 6);
+
+	return 1;
+} /* unix_getopt() */
+
+
+static int unix_getpeername(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	if ((error = unixL_getsockname(L, fd, &getpeername)))
+		return unixL_pusherror(L, error, "getpeername", "~$#");
+
+	return 1;
+} /* unix_getpeername() */
+
+
+static int unix_getpgid(lua_State *L) {
+	pid_t pid = unixL_checkpid(L, 1);
+	pid_t pgid;
+
+	if (-1 == (pgid = getpgid(pid)))
+		return unixL_pusherror(L, errno, "getpgid", "~$#");
+
+	lua_pushinteger(L, pgid);
+
+	return 1;
+} /* unix_getpgid() */
+
+
+static int unix_getpgrp(lua_State *L) {
+	lua_pushinteger(L, getpgrp());
+
+	return 1;
+} /* unix_getpgrp() */
+
+
 static int unix_getpid(lua_State *L) {
 	lua_pushinteger(L, getpid());
 
@@ -5588,6 +6640,11 @@ static int unix_getppid(lua_State *L) {
 } /* unix_getppid() */
 
 
+MAYBEUSED static const char *getprogname_basename(const char *path) {
+	const char *name;
+	return ((name = strrchr(path, '/')))? ++name : path;
+}
+
 static int unix_getprogname(lua_State *L) {
 	const char *name = NULL;
 
@@ -5599,11 +6656,7 @@ static int unix_getprogname(lua_State *L) {
 	if (!(path = getexecname()))
 		goto notsup;
 
-	if ((name = strrchr(path, '/'))) {
-		name++;
-	} else {
-		name = path;
-	}
+	name = getprogname_basename(path);
 #elif HAVE_PROGRAM_INVOCATION_SHORT_NAME
 	name = program_invocation_short_name;
 #elif HAVE_STRUCT_PSINFO_PR_FNAME
@@ -5614,6 +6667,14 @@ static int unix_getprogname(lua_State *L) {
 		return unixL_pusherror(L, error, "getprogname", "~$#");
 
 	name = pr.pr_fname;
+#elif HAVE_P_XARGV
+#if !HAVE_DECL_P_XARGV
+	extern char **p_xargv;
+#endif
+	if (!*p_xargv)
+		goto notsup;
+
+	name = getprogname_basename(*p_xargv);
 #endif
 
 	if (!name || !*name)
@@ -5747,6 +6808,150 @@ static int unix_getpwnam(lua_State *L) {
 } /* unix_getpwnam() */
 
 
+static int rl_checkrlimit(lua_State *L, int index) {
+	static const char *const what_s[] = {
+		"core", "cpu", "data", "fsize", "nofile", "stack",
+#if HAVE_DECL_RLIMIT_AS
+		"as",
+#endif
+		NULL
+	};
+	static const int what_i[countof(what_s) - 1] = {
+		RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
+		RLIMIT_NOFILE, RLIMIT_STACK,
+#if HAVE_DECL_RLIMIT_AS
+		RLIMIT_AS,
+#endif
+	};
+	int i;
+
+	if (lua_isnumber(L, index))
+		return unixL_checkint(L, index);
+
+	i = luaL_checkoption(L, index, NULL, what_s);
+	luaL_argcheck(L, i >= 0 && i < (int)countof(what_i), index, lua_pushfstring(L, "unexpected rlimit (%s)", lua_tostring(L, index)));
+
+	return what_i[i];
+} /* rl_checkrlimit() */
+
+#define RL_RLIM_INFINITY INFINITY
+#define RL_RLIM_SAVED_CUR -1.0
+#define RL_RLIM_SAVED_MAX -2.0
+
+#define U_RLIM_INFINITY RLIM_INFINITY
+
+#if HAVE_DECL_RLIM_SAVED_CUR
+#define U_RLIM_SAVED_CUR RLIM_SAVED_CUR
+#else
+#define U_RLIM_SAVED_CUR U_RLIM_INFINITY
+#endif
+
+#if HAVE_DECL_RLIM_SAVED_MAX
+#define U_RLIM_SAVED_MAX RLIM_SAVED_MAX
+#else
+#define U_RLIM_SAVED_MAX U_RLIM_INFINITY
+#endif
+
+static _Bool rl_isequal(lua_State *L, int index, lua_Number n) {
+	_Bool eq;
+
+	index = lua_absindex(L, index);
+	lua_pushnumber(L, n);
+#if LUA_VERSION_NUM == 501
+	eq = lua_equal(L, index, -1);
+#else
+	eq = lua_compare(L, index, -1, LUA_OPEQ);
+#endif
+	lua_pop(L, 1);
+
+	return eq;
+} /* rl_isequal() */
+
+static rlim_t rl_checkrlim(lua_State *L, int index) {
+	luaL_checktype(L, index, LUA_TNUMBER);
+
+	if (!lua_isinteger(L, index)) {
+		/*
+		 * NB: On some systems RLIM_INFINITY, RLIM_SAVED_CUR, and
+		 * RLIM_SAVED_MAX are equal. The semantics work because
+		 * applications are expected to only echo the RLIM_SAVED_CUR
+		 * and RLIM_SAVED_MAX values; not specify them de novo.
+		 * However, we could call getrlimit() for
+		 * RL_RLIM_SAVED_{CUR,MAX} and use that value.
+		 */
+		if (rl_isequal(L, index, RL_RLIM_INFINITY))
+			return U_RLIM_INFINITY;
+		if (rl_isequal(L, index, RL_RLIM_SAVED_CUR))
+			return U_RLIM_SAVED_CUR;
+		if (rl_isequal(L, index, RL_RLIM_SAVED_MAX))
+			return U_RLIM_SAVED_MAX;
+	}
+
+	return unixL_checkunsigned(L, index, 0, (rlim_t)-1);
+} /* rl_checkrlim() */
+
+static rlim_t rl_optrlim(lua_State *L, int index, rlim_t def) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return rl_checkrlim(L, index);
+} /* rl_optrlim() */
+
+static void rl_pushrlim(lua_State *L, rlim_t rlim) {
+	if (rlim == U_RLIM_SAVED_MAX) {
+		lua_pushnumber(L, RL_RLIM_SAVED_MAX);
+	} else if (rlim == U_RLIM_SAVED_CUR) {
+		lua_pushnumber(L, RL_RLIM_SAVED_CUR);
+	} else {
+		unixL_pushunsigned(L, rlim);
+	}
+} /* rl_pushrlim() */
+
+static int unix_getrlimit(lua_State *L) {
+	struct rlimit rl;
+
+	if (0 != getrlimit(rl_checkrlimit(L, 1), &rl))
+		return unixL_pusherror(L, errno, "getrlimit", "~$#");
+
+	rl_pushrlim(L, rl.rlim_cur);
+	rl_pushrlim(L, rl.rlim_max);
+
+	return 2;
+} /* unix_getrlimit() */
+
+
+static int ru_checkrusage(lua_State *L, int index) {
+	static const char *const what_s[] = { "children", "self", NULL };
+	static const int what_i[countof(what_s) - 1] = {
+		RUSAGE_CHILDREN, RUSAGE_SELF,
+	};
+	int i;
+
+	if (lua_isnumber(L, index))
+		return unixL_checkint(L, index);
+
+	i = luaL_checkoption(L, index, NULL, what_s);
+	luaL_argcheck(L, i >= 0 && i < (int)countof(what_i), index, lua_pushfstring(L, "unexpected resource (%s)", lua_tostring(L, index)));
+
+	return what_i[i];
+} /* ru_checkrusage() */
+
+static int unix_getrusage(lua_State *L) {
+	struct rusage ru;
+
+	if (0 != getrusage(ru_checkrusage(L, 1), &ru))
+		return unixL_pusherror(L, errno, "getrusage", "~$#");
+
+	lua_newtable(L);
+	lua_pushnumber(L, u_tv2f(&ru.ru_utime));
+	lua_setfield(L, -2, "utime");
+	lua_pushnumber(L, u_tv2f(&ru.ru_stime));
+	lua_setfield(L, -2, "stime");
+
+	return 1;
+} /* unix_getrusage() */
+
+
 static int unix_gettimeofday(lua_State *L) {
 	struct timeval tv;
 
@@ -5754,7 +6959,7 @@ static int unix_gettimeofday(lua_State *L) {
 		return unixL_pusherror(L, errno, "gettimeofday", "~$#");
 
 	if (lua_isnoneornil(L, 1) || !lua_toboolean(L, 1)) {
-		lua_pushnumber(L, (double)tv.tv_sec + ((double)tv.tv_usec / 1000000L));
+		lua_pushnumber(L, u_tv2f(&tv));
 
 		return 1;
 	} else {
@@ -5766,11 +6971,88 @@ static int unix_gettimeofday(lua_State *L) {
 } /* unix_gettimeofday() */
 
 
+static int unix_getsockname(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	if ((error = unixL_getsockname(L, fd, &getsockname)))
+		return unixL_pusherror(L, error, "getsockname", "~$#");
+
+	return 1;
+} /* unix_getsockname() */
+
+
 static int unix_getuid(lua_State *L) {
 	lua_pushinteger(L, getuid());
 
 	return 1;
 } /* unix_getuid() */
+
+
+static int unix_grantpt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != grantpt(fd))
+		return unixL_pusherror(L, errno, "grantpt", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_grantpt() */
+
+
+static int unix_ioctl(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = luaL_checkint(L, 2);
+	int val, error;
+
+	switch (cmd) {
+#if defined SIOCATMARK
+	case SIOCATMARK:
+		if (-1 == ioctl(fd, cmd, &val))
+			goto syerr;
+
+		lua_pushboolean(L, val != 0);
+
+		return 1;
+#endif
+#if defined TIOCSCTTY
+	case TIOCSCTTY:
+		if (-1 == ioctl(fd, cmd, (char *)NULL))
+			goto syerr;
+
+		lua_pushvalue(L, 1);
+
+		return 1;
+#endif
+	default:
+		/*
+		 * NOTE: We don't allow unsupported operations because we
+		 * cannot know the argument type that ioctl expects. If it's
+		 * a pointer then this interface becomes a vector for
+		 * reading or writing random process memory.
+		 */
+		return luaL_error(L, "%d: unsupported ioctl operation", cmd);
+	} /* switch () */
+syerr:
+	error = errno;
+	return unixL_pusherror(L, error, "ioctl", "~$#");
+} /* unix_ioctl() */
+
+
+static int unix_isatty(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	/* NB: POSIX doesn't require implementations to set errno */
+	errno = 0;
+	if (isatty(fd)) {
+		return lua_pushboolean(L, 1), 1;
+	} else if (errno == EBADF) {
+		return unixL_pusherror(L, errno, "isatty", "0$#");
+	} else {
+		return lua_pushboolean(L, 0), 1;
+	}
+} /* unix_isatty() */
 
 
 #if HAVE_GETAUXVAL
@@ -5855,6 +7137,39 @@ static int unix_link(lua_State *L) {
 
 	return 1;
 } /* unix_link() */
+
+
+#if defined SOMAXCONN
+#define U_SOMAXCONN SOMAXCONN
+#else
+#define U_SOMAXCONN 128
+#endif
+
+static int unix_listen(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int backlog = unixL_optint(L, 2, U_SOMAXCONN);
+
+	if (0 != listen(fd, backlog))
+		return unixL_pusherror(L, errno, "listen", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_listen() */
+
+
+static int unix_lockf(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = unixL_checkint(L, 2);
+	off_t size = unixL_optoff(L, 3, 0);
+
+	if (0 != lockf(fd, cmd, size))
+		return unixL_pusherror(L, errno, "lockf", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_lockf() */
 
 
 static int unix_lseek(lua_State *L) {
@@ -6011,71 +7326,11 @@ static int unix_open(lua_State *L) {
 	lua_pushinteger(L, fd);
 
 	return 1;
-syerr:
-	error = errno;
 error:
 	u_close(&fd);
 
 	return unixL_pusherror(L, error, "open", "~$#");
 } /* unix_open() */
-
-
-static int unix_pipe(lua_State *L) {
-	int fd[2] = { -1, -1 }, error;
-	u_flags_t flags;
-	const char *mode;
-
-	lua_settop(L, 1);
-	unixL_checkflags(L, 1, &mode, &flags, NULL);
-
-	if ((error = u_pipe(fd, flags)))
-		goto error;
-
-	lua_pushinteger(L, fd[0]);
-	lua_pushinteger(L, fd[1]);
-
-	return 2;
-error:
-	u_close(&fd[0]);
-	u_close(&fd[1]);
-
-	return unixL_pusherror(L, error, "pipe", "~$#");
-} /* unix_pipe() */
-
-
-#if HAVE_POSIX_FADVISE
-static int unix_posix_fadvise(lua_State *L) {
-	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkoff(L, 2);
-	off_t len = unixL_checkoff(L, 3);
-	int advice = unixL_checkint(L, 4);
-	int error;
-
-	if ((error = posix_fadvise(fd, offset, len, advice)))
-		return unixL_pusherror(L, error, "posix_fadvise", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
-} /* unix_posix_fadvise() */
-#endif
-
-
-#if HAVE_POSIX_FALLOCATE
-static int unix_posix_fallocate(lua_State *L) {
-	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkoff(L, 2);
-	off_t len = unixL_checkoff(L, 3);
-	int error;
-
-	if ((error = posix_fallocate(fd, offset, len)))
-		return unixL_pusherror(L, error, "posix_fallocate", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
-} /* unix_posix_fallocate() */
-#endif
 
 
 static DIR *dir_checkself(lua_State *L, int index) {
@@ -6270,6 +7525,160 @@ error:
 } /* unix_opendir() */
 
 
+static int unix_pipe(lua_State *L) {
+	int fd[2] = { -1, -1 }, error;
+	u_flags_t flags;
+	const char *mode;
+
+	lua_settop(L, 1);
+	unixL_checkflags(L, 1, &mode, &flags, NULL);
+
+	if ((error = u_pipe(fd, flags)))
+		goto error;
+
+	lua_pushinteger(L, fd[0]);
+	lua_pushinteger(L, fd[1]);
+
+	return 2;
+error:
+	u_close(&fd[0]);
+	u_close(&fd[1]);
+
+	return unixL_pusherror(L, error, "pipe", "~$#");
+} /* unix_pipe() */
+
+
+static u_error_t poll_add(unixL_State *U, int fd, short events, size_t *nfds, size_t *mfds) {
+	int error;
+
+	if (*nfds >= INT_MAX)
+		return ERANGE;
+
+	if (*mfds <= *nfds) {
+		if ((error = u_reallocarray_pollfd(&U->net.fds.buf, &U->net.fds.bufsiz, *nfds + 1)))
+			return error;
+		*mfds = U->net.fds.bufsiz / sizeof *U->net.fds.buf;
+	}
+
+	assert(*mfds > *nfds);
+	U->net.fds.buf[*nfds].fd = fd;
+	U->net.fds.buf[*nfds].events = events;
+	U->net.fds.buf[*nfds].revents = 0;
+	++*nfds;
+
+	return 0;
+}
+
+static int unix_poll(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int timeout = u_f2ms(luaL_optnumber(L, 2, U_NAN));
+	size_t mfds = 0, nfds = 0, i;
+	int error, nr;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushnil(L);
+	while (lua_next(L, 1) != 0) {
+		int fd;
+		short events;
+
+		fd = unixL_checkint(L, -2);
+		lua_getfield(L, -1, "events");
+		events = unixL_checkinteger(L, -1, 0, SHRT_MAX);
+		lua_pop(L, 1);
+
+		if ((error = poll_add(U, fd, events, &nfds, &mfds)))
+			return unixL_pusherror(L, error, "poll", "~$#");
+
+		lua_pop(L, 1);
+	}
+
+	if (-1 == (nr = poll(U->net.fds.buf, nfds, timeout)))
+		return unixL_pusherror(L, errno, "poll", "~$#");
+
+	for (i = 0; i < nfds; i++) {
+		struct pollfd *pfd = &U->net.fds.buf[i];
+
+		lua_rawgeti(L, 1, pfd->fd);
+		lua_pushinteger(L, pfd->revents);
+		lua_setfield(L, -2, "revents");
+	}
+
+	lua_pushinteger(L, nr);
+
+	return 1;
+} /* unix_poll() */
+
+
+#if HAVE_POSIX_FADVISE
+static int unix_posix_fadvise(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
+	int advice = unixL_checkint(L, 4);
+	int error;
+
+	if ((error = posix_fadvise(fd, offset, len, advice)))
+		return unixL_pusherror(L, error, "posix_fadvise", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_fadvise() */
+#endif
+
+
+#if HAVE_POSIX_FALLOCATE
+static int unix_posix_fallocate(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
+	int error;
+
+	if ((error = posix_fallocate(fd, offset, len)))
+		return unixL_pusherror(L, error, "posix_fallocate", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_fallocate() */
+#endif
+
+
+static int unix_posix_openpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	int fd;
+
+	if (-1 == (fd = posix_openpt(flags)))
+		return unixL_pusherror(L, errno, "posix_openpt", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_posix_openpt() */
+
+static int unix_posix_fopenpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	luaL_Stream *fh;
+	int fd, error;
+
+	fh = unixL_prepfile(L);
+
+	if (-1 == (fd = posix_openpt(flags)))
+		goto syerr;
+
+	if ((error = u_fdopen(&fh->f, &fd, NULL, flags)))
+		goto error;
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "posix_openpt", "~$#");
+} /* unix_posix_fopenpt() */
+
+
 static int unix_pread(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -6278,7 +7687,7 @@ static int unix_pread(lua_State *L) {
 	ssize_t n;
 	int error;
 
-	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+	if (U->bufsiz < size && (error = u_realloc(&U->buf, &U->bufsiz, size)))
 		return unixL_pusherror(L, error, "pread", "~$#");
 
 	if (-1 == (n = pread(fd, U->buf, size, offset)))
@@ -6288,6 +7697,22 @@ static int unix_pread(lua_State *L) {
 
 	return 1;
 } /* unix_pread() */
+
+
+static int unix_ptsname(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	while ((error = u_ptsname_r(fd, U->buf, U->bufsiz))) {
+		if (error != ERANGE || (error = u_growby(&U->buf, &U->bufsiz, 64)))
+			return unixL_pusherror(L, error, "ptsname", "~$#");
+	}
+
+	lua_pushstring(L, U->buf);
+
+	return 1;
+} /* unix_ptsname() */
 
 
 static int unix_pwrite(lua_State *L) {
@@ -6323,7 +7748,7 @@ static int unix_read(lua_State *L) {
 	ssize_t n;
 	int error;
 
-	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+	if (U->bufsiz < size && (error = u_realloc(&U->buf, &U->bufsiz, size)))
 		return unixL_pusherror(L, error, "read", "~$#");
 
 	if (-1 == (n = read(fd, U->buf, size)))
@@ -6338,6 +7763,180 @@ static int unix_read(lua_State *L) {
 static int unix_readdir(lua_State *L) {
 	return dir_read(L);
 } /* unix_readdir() */
+
+
+static int unix_recv(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	ssize_t n;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recv", "~$#");
+
+	if (-1 == (n = recv(fd, U->buf, size, flags)))
+		return unixL_pusherror(L, errno, "recv", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_recv() */
+
+
+static int unix_recvfrom(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	struct sockaddr_storage from;
+	socklen_t fromlen;
+	ssize_t n;
+	void *ud;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recvfrom", "~$#");
+
+	fromlen = sizeof from;
+	if (-1 == (n = recvfrom(fd, U->buf, size, flags, (struct sockaddr *)&from, &fromlen)))
+		return unixL_pusherror(L, errno, "recvfrom", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	/* TODO: What if our buffer is too small? */
+	ud = lua_newuserdata(L, fromlen);
+	memcpy(ud, &from, MIN(fromlen, sizeof from));
+	luaL_setmetatable(L, "struct sockaddr");
+
+	return 2;
+} /* unix_recvfrom() */
+
+
+static int unix_recvfromto(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	struct sockaddr_storage from, to;
+	size_t fromlen, tolen;
+	ssize_t n;
+	void *ud;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recvfromto", "~$#");
+
+	fromlen = sizeof from;
+	tolen = sizeof to;
+	if (-1 == (n = u_recvfromto(fd, U->buf, size, flags, (struct sockaddr *)&from, &fromlen, (struct sockaddr *)&to, &tolen, &error)))
+		return unixL_pusherror(L, error, "recvfromto", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+	unixL_newsockaddr(L, &from, fromlen);
+	unixL_newsockaddr(L, &to, tolen);
+
+	return 3;
+} /* unix_recvfromto() */
+
+static int sa__index_in(lua_State *L, const struct sockaddr_in *in, const char *k) {
+	if (!strcmp(k, "addr")) {
+		char addr[INET_ADDRSTRLEN];
+
+		if (!inet_ntop(AF_INET, &in->sin_addr, addr, sizeof addr))
+			return 0;
+		lua_pushstring(L, addr);
+		return 1;
+	} else if (!strcmp(k, "port")) {
+		lua_pushinteger(L, ntohs(in->sin_port));
+		return 1;
+	}
+
+	return 0;
+} /* sa__index_in() */
+
+static int sa__index_in6(lua_State *L, const struct sockaddr_in6 *in6, const char *k) {
+	if (!strcmp(k, "addr")) {
+		char addr[INET6_ADDRSTRLEN];
+
+		if (!inet_ntop(AF_INET6, &in6->sin6_addr, addr, sizeof addr))
+			return 0;
+		lua_pushstring(L, addr);
+		return 1;
+	} else if (!strcmp(k, "port")) {
+		lua_pushinteger(L, ntohs(in6->sin6_port));
+		return 1;
+	} else if (!strcmp(k, "flowinfo")) {
+		unixL_pushunsigned(L, in6->sin6_flowinfo);
+		return 1;
+	} else if (!strcmp(k, "scope_id")) {
+		unixL_pushunsigned(L, in6->sin6_scope_id);
+		return 1;
+	}
+
+	return 0;
+} /* sa__index_in6() */
+
+static int sa__index_un(lua_State *L, const struct sockaddr_un *un, size_t unlen, const char *k) {
+	if (!strcmp(k, "path")) {
+		size_t pathsiz, pathlen;
+
+		if (unlen < offsetof(struct sockaddr_un, sun_path))
+			return 0;
+		pathsiz = un->sun_path[unlen - offsetof(struct sockaddr_un, sun_path)];
+		pathlen = strnlen(un->sun_path, pathsiz);
+		if (pathlen == 0) {
+#if __linux__
+			if (pathsiz && (pathlen = strnlen(&un->sun_path[1], pathsiz - 1))) {
+				lua_pushlstring(L, un->sun_path, pathlen + 1);
+				return 1;
+			}
+#endif
+			return 0;
+		}
+		lua_pushlstring(L, un->sun_path, pathlen);
+		return 1;
+	}
+
+	return 0;
+} /* sa__index_un() */
+
+static int sa__index(lua_State *L) {
+	struct sockaddr *addr = luaL_checkudata(L, 1, "struct sockaddr");
+	size_t addrlen = lua_rawlen(L, 1);
+	const char *k = luaL_checkstring(L, 2);
+
+	if (addrlen < offsetof(struct sockaddr, sa_family) + sizeof addr->sa_family)
+		return 0;
+
+	if (!strcmp(k, "family")) {
+		lua_pushinteger(L, addr->sa_family);
+		return 0;
+	} else if (addr->sa_family == AF_INET) {
+		return sa__index_in(L, (struct sockaddr_in *)addr, k);
+	} else if (addr->sa_family == AF_INET6) {
+		return sa__index_in6(L, (struct sockaddr_in6 *)addr, k);
+	} else if (addr->sa_family == AF_UNIX) {
+		return sa__index_un(L, (struct sockaddr_un *)addr, addrlen, k);
+	}
+
+	return 0;
+} /* so__index() */
+
+static int sa__tostring(lua_State *L) {
+	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
+
+	lua_pushlstring(L, (char *)sa, lua_rawlen(L, 1));
+
+	return 1;
+} /* sa__tostring() */
+
+static const luaL_Reg sa_metamethods[] = {
+	{ "__index",    &sa__index },
+	{ "__tostring", &sa__tostring },
+	{ NULL,         NULL }
+}; /* sa_metamethods[] */
 
 
 static int unix_rename(lua_State *L) {
@@ -6409,6 +8008,63 @@ static int unix_rmdir(lua_State *L) {
 
 	return 1;
 } /* unix_rmdir() */
+
+
+static int unix_send(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = send(fd, src, size, flags)))
+		return unixL_pusherror(L, errno, "send", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_send() */
+
+
+static int unix_sendto(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	size_t tolen;
+	void *to = unixL_checksockaddr(L, 4, &tolen);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = sendto(fd, src, size, flags, to, tolen)))
+		return unixL_pusherror(L, errno, "sendto", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_sendto() */
+
+
+static int unix_sendtofrom(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	size_t tolen;
+	struct sockaddr *to = unixL_checksockaddr(L, 4, &tolen);
+	size_t fromlen;
+	struct sockaddr *from = unixL_checksockaddr(L, 5, &fromlen);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = u_sendtofrom(fd, src, size, flags, to, tolen, from, fromlen, &error)))
+		return unixL_pusherror(L, error, "sendtofrom", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_sendtofrom() */
 
 
 static int unix_setegid(lua_State *L) {
@@ -6488,6 +8144,106 @@ static int unix_setlocale(lua_State *L) {
 
 	return 1;
 } /* unix_setlocale() */
+
+
+static int unix_setpgid(lua_State *L) {
+	pid_t pid = unixL_checkpid(L, 1);
+	pid_t pgid = unixL_checkpid(L, 2);
+
+	if (0 != setpgid(pid, pgid))
+		return unixL_pusherror(L, errno, "setpgid", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_setpgid() */
+
+
+static int unix_setrlimit(lua_State *L) {
+	int what = rl_checkrlimit(L, 1);
+	struct rlimit rl;
+
+	rl.rlim_cur = rl_optrlim(L, 2, U_RLIM_SAVED_CUR);
+	rl.rlim_max = rl_optrlim(L, 3, U_RLIM_SAVED_MAX);
+
+	if (0 != setrlimit(what, &rl))
+		return unixL_pusherror(L, errno, "setrlimit", "~$#");
+
+	/*
+	 * .rlim_cur and .rlim_max will be updated with new value
+	 * if RLIM_SAVED_CUR or RLIM_SAVED_MAX
+	 */
+	rl_pushrlim(L, rl.rlim_cur);
+	rl_pushrlim(L, rl.rlim_max);
+
+	return 2;
+} /* unix_setrlimit() */
+
+
+static int unix_setsockopt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int level = unixL_checkint(L, 2);
+	int type = unixL_checkint(L, 3);
+	int i, error;
+
+	luaL_checkany(L, 4);
+
+	switch (level) {
+	case IPPROTO_IP:
+		switch (type) {
+#if HAVE_DECL_IP_PKTINFO
+		case IP_PKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IP_RECVDSTADDR
+		case IP_RECVDSTADDR:
+			goto setbool;
+#endif
+#if HAVE_DECL_IP_TTL
+		case IP_TTL:
+			goto setint;
+#endif
+		}
+
+		break;
+	case IPPROTO_IPV6:
+		switch (type) {
+#if HAVE_DECL_IPV6_PKTINFO
+		case IPV6_PKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IPV6_RECVPKTINFO
+		case IPV6_RECVPKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IPV6_V6ONLY
+		case IPV6_V6ONLY:
+			goto setbool;
+#endif
+		}
+
+		break;
+	}
+
+	error = ENOTSUP;
+	goto error;
+setbool:
+	i = lua_toboolean(L, 4);
+	if (0 != setsockopt(fd, level, type, &i, sizeof i))
+		goto syerr;
+	lua_pushboolean(L, 1);
+	return 1;
+setint:
+	i = unixL_checkint(L, 4);
+	if (0 != setsockopt(fd, level, type, &i, sizeof i))
+		goto syerr;
+	lua_pushboolean(L, 1);
+	return 1;
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "setsockopt", "0$#");
+} /* unix_setsockopt() */
 
 
 static int unix_setsid(lua_State *L) {
@@ -6669,6 +8425,54 @@ static int unix_sigtimedwait(lua_State *L) {
 
 	return 2;
 } /* unix_sigtimedwait() */
+
+
+static int unix_sigwait(lua_State *L) {
+	sigset_t set, *_set;
+	int signo, error;
+
+	if (lua_isnoneornil(L, 1)) {
+		sigfillset(&set);
+	} else {
+		if (&set != (_set = unixL_tosigset(L, 1, &set)))
+			set = *_set;
+	}
+
+	/* these cannot be caught and will trigger EINVAL on AIX */
+	sigdelset(&set, SIGKILL);
+	sigdelset(&set, SIGSTOP);
+
+	if ((error = u_sigwait(&set, &signo)))
+		return unixL_pusherror(L, error, "sigwait", "~$#");
+
+	lua_pushinteger(L, signo);
+
+	return 1;
+} /* unix_sigwait() */
+
+
+static int unix_sleep(lua_State *L) {
+	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
+
+	unixL_pushunsigned(L, sleep(n));
+
+	return 1;
+} /* unix_sleep() */
+
+
+static int unix_socket(lua_State *L) {
+	int family = unixL_checkint(L, 1);
+	int socktype = unixL_checkint(L, 2);
+	int protocol = unixL_optint(L, 3, 0);
+	int fd;
+
+	if (-1 == (fd = socket(family, socktype, protocol)))
+		return unixL_pusherror(L, errno, "socket", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_socket() */
 
 
 enum st_field {
@@ -6879,6 +8683,32 @@ static int unix_symlink(lua_State *L) {
 } /* unix_symlink() */
 
 
+static int unix_tcgetpgrp(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	pid_t pgid;
+
+	if (-1 == (pgid = tcgetpgrp(fd)))
+		return unixL_pusherror(L, errno, "tcgetpgrp", "~$#");
+
+	lua_pushinteger(L, pgid);
+
+	return 1;
+} /* unix_tcgetpgrp() */
+
+
+static int unix_tcsetpgrp(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	pid_t pgid = unixL_checkpid(L, 2);
+
+	if (0 != tcsetpgrp(fd, pgid))
+		return unixL_pusherror(L, errno, "tcsetpgrp", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_tcsetpgrp() */
+
+
 static int yr_isleap(int year) {
 	if (year >= 0)
 		return !(year % 4) && ((year % 100) || !(year % 400));
@@ -6893,7 +8723,7 @@ static int tm_yday(const struct tm *tm) {
 
 	if (tm->tm_yday)
 		return tm->tm_yday;
-	
+
 	yday = past[CLAMP(tm->tm_mon, 0, 11)] + CLAMP(tm->tm_mday, 1, 31) - 1;
 
 	return yday + (tm->tm_mon > 1 && yr_isleap(1900 + tm->tm_year));
@@ -7058,6 +8888,18 @@ static int unix_unlink(lua_State *L) {
 } /* unix_unlink() */
 
 
+static int unix_unlockpt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != unlockpt(fd))
+		return unixL_pusherror(L, errno, "unlockpt", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_unlockpt() */
+
+
 static int unix_unsetenv(lua_State *L) {
 	return unixL_unsetenv(L, 1);
 } /* unix_unsetenv() */
@@ -7128,12 +8970,56 @@ static int unix__gc(lua_State *L) {
 	return 0;
 } /* unix__gc() */
 
+static int unix__index(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *k = luaL_checkstring(L, 2);
+
+	if (!strcmp(k, "opterr")) {
+		lua_pushboolean(L, !!U->opt.opterr);
+		return 1;
+	} else if (!strcmp(k, "optind")) {
+		lua_pushinteger(L, U->opt.optind + U->opt.arg0);
+		return 1;
+	} else if (!strcmp(k, "optopt")) {
+		getopt_pushoptc(L, U->opt.optopt);
+		return 1;
+	} else if (!strcmp(k, "_arg0")) {
+		lua_pushinteger(L, U->opt.arg0);
+		return 1;
+	} else {
+		return 0;
+	}
+} /* unix__index() */
+
+static int unix__newindex(lua_State *L) {
+	if (lua_type(L, 2) == LUA_TSTRING) {
+		unixL_State *U = unixL_getstate(L);
+		const char *k = lua_tostring(L, 2);
+
+		if (!strcmp(k, "opterr")) {
+			if (lua_isboolean(L, 3)) {
+				U->opt.opterr = lua_toboolean(L, 3);
+			} else {
+				U->opt.opterr = unixL_checkint(L, 3);
+			}
+			return 0;
+		}
+	}
+
+	lua_rawset(L, 1);
+
+	return 0;
+} /* unix__newindex() */
+
 
 static const luaL_Reg unix_routines[] = {
+	{ "accept",             &unix_accept },
+	{ "alarm",              &unix_alarm },
 	{ "arc4random",         &unix_arc4random },
 	{ "arc4random_buf",     &unix_arc4random_buf },
 	{ "arc4random_stir",    &unix_arc4random_stir },
 	{ "arc4random_uniform", &unix_arc4random_uniform },
+	{ "bind",               &unix_bind },
 	{ "bitand",             &unix_bitand },
 	{ "bitor",              &unix_bitor },
 	{ "chdir",              &unix_chdir },
@@ -7141,10 +9027,15 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
+	{ "close",              &unix_close },
 	{ "closedir",           &unix_closedir },
 	{ "compl",              &unix_compl },
+	{ "connect",            &unix_connect },
 	{ "dup",                &unix_dup },
 	{ "dup2",               &unix_dup2 },
+#if HAVE_DUP3
+	{ "dup3",               &unix_dup3 },
+#endif
 	{ "execve",             &unix_execve },
 	{ "execl",              &unix_execl },
 	{ "execlp",             &unix_execlp },
@@ -7154,6 +9045,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "fchmod",             &unix_chmod },
 	{ "fchown",             &unix_chown },
 	{ "fcntl",              &unix_fcntl },
+#if HAVE_FDATASYNC
+	{ "fdatasync",          &unix_fdatasync },
+#endif
 	{ "fdopen",             &unix_fdopen },
 #if HAVE_FDOPENDIR
 	{ "fdopendir",          &unix_fdopendir },
@@ -7162,6 +9056,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
 	{ "fstat",              &unix_stat },
+	{ "fsync",              &unix_fsync },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fopen",              &unix_fopen },
@@ -7179,17 +9074,30 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgroups",          &unix_getgroups },
 	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
+	{ "getnameinfo",        &unix_getnameinfo },
+	{ "getopt",             &unix_getopt },
+	{ "getpeername",        &unix_getpeername },
+	{ "getpgid",            &unix_getpgid },
+	{ "getpgrp",            &unix_getpgrp },
 	{ "getpid",             &unix_getpid },
 	{ "getppid",            &unix_getppid },
 	{ "getprogname",        &unix_getprogname },
 	{ "getpwnam",           &unix_getpwnam },
 	{ "getpwuid",           &unix_getpwnam },
+	{ "getrlimit",          &unix_getrlimit },
+	{ "getrusage",          &unix_getrusage },
+	{ "getsockname",        &unix_getsockname },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
+	{ "grantpt",            &unix_grantpt },
+	{ "ioctl",              &unix_ioctl },
+	{ "isatty",             &unix_isatty },
 	{ "issetugid",          &unix_issetugid },
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
+	{ "listen",             &unix_listen },
+	{ "lockf",              &unix_lockf },
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
@@ -7198,17 +9106,24 @@ static const luaL_Reg unix_routines[] = {
 	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
 	{ "pipe",               &unix_pipe },
+	{ "poll",               &unix_poll },
 #if HAVE_POSIX_FADVISE
 	{ "posix_fadvise",      &unix_posix_fadvise },
 #endif
 #if HAVE_POSIX_FALLOCATE
 	{ "posix_fallocate",    &unix_posix_fallocate },
 #endif
+	{ "posix_openpt",       &unix_posix_openpt },
+	{ "posix_fopenpt",      &unix_posix_fopenpt },
 	{ "pread",              &unix_pread },
+	{ "ptsname",            &unix_ptsname },
 	{ "pwrite",             &unix_pwrite },
 	{ "raise",              &unix_raise },
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
+	{ "recv",               &unix_recv },
+	{ "recvfrom",           &unix_recvfrom },
+	{ "recvfromto",         &unix_recvfromto },
 	{ "rename",             &unix_rename },
 	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
@@ -7219,14 +9134,20 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISREG",            &unix_S_ISREG },
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
+	{ "send",               &unix_send },
+	{ "sendto",             &unix_sendto },
+	{ "sendtofrom",         &unix_sendtofrom },
 	{ "setegid",            &unix_setegid },
 	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
 	{ "setgroups",          &unix_setgroups },
 	{ "setlocale",          &unix_setlocale },
-	{ "setuid",             &unix_setuid },
+	{ "setpgid",            &unix_setpgid },
+	{ "setrlimit",          &unix_setrlimit },
+	{ "setsockopt",         &unix_setsockopt },
 	{ "setsid",             &unix_setsid },
+	{ "setuid",             &unix_setuid },
 	{ "sigaction",          &unix_sigaction },
 	{ "sigfillset",         &unix_sigfillset },
 	{ "sigemptyset",        &unix_sigemptyset },
@@ -7235,16 +9156,22 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigismember",        &unix_sigismember },
 	{ "sigprocmask",        &unix_sigprocmask },
 	{ "sigtimedwait",       &unix_sigtimedwait },
+	{ "sigwait",            &unix_sigwait },
+	{ "sleep",              &unix_sleep },
+	{ "socket",             &unix_socket },
 	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
+	{ "tcgetpgrp",          &unix_tcgetpgrp },
+	{ "tcsetpgrp",          &unix_tcsetpgrp },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
 	{ "tzset",              &unix_tzset },
 	{ "umask",              &unix_umask },
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
+	{ "unlockpt",           &unix_unlockpt },
 	{ "unsetenv",           &unix_unsetenv },
 	{ "wait",               &unix_wait },
 	{ "waitpid",            &unix_waitpid },
@@ -7274,6 +9201,15 @@ static const struct unix_const const_sock[] = {
 #if defined SOCK_SEQPACKET
 	UNIX_CONST(SOCK_SEQPACKET),
 #endif
+#if defined SOCK_CLOEXEC
+	UNIX_CONST(SOCK_CLOEXEC),
+#endif
+#if defined SOCK_NONBLOCK
+	UNIX_CONST(SOCK_NONBLOCK),
+#endif
+#if defined SOCK_NOSIGPIPE
+	UNIX_CONST(SOCK_NOSIGPIPE),
+#endif
 }; /* const_sock[] */
 
 static const struct unix_const const_ipproto[] = {
@@ -7284,6 +9220,33 @@ static const struct unix_const const_ipproto[] = {
 	UNIX_CONST(IPPROTO_RAW),
 #endif
 }; /* const_ipproto[] */
+
+static const struct unix_const const_ip[] = {
+#if defined IP_PKTINFO
+	UNIX_CONST(IP_PKTINFO),
+#endif
+#if defined IP_RECVDSTADDR
+	UNIX_CONST(IP_RECVDSTADDR),
+#endif
+#if defined IP_SENDSRCADDR
+	UNIX_CONST(IP_SENDSRCADDR),
+#endif
+#if defined IP_TTL
+	UNIX_CONST(IP_TTL),
+#endif
+}; /* const_ip[] */
+
+static const struct unix_const const_ipv6[] = {
+#if defined IPV6_PKTINFO
+	UNIX_CONST(IPV6_PKTINFO),
+#endif
+#if defined IPV6_RECVPKTINFO
+	UNIX_CONST(IPV6_RECVPKTINFO),
+#endif
+#if defined IPV6_V6ONLY
+	UNIX_CONST(IPV6_V6ONLY),
+#endif
+}; /* const_ipv6[] */
 
 static const struct unix_const const_ai[] = {
 	UNIX_CONST(AI_PASSIVE), UNIX_CONST(AI_CANONNAME),
@@ -7306,6 +9269,51 @@ static const struct unix_const const_eai[] = {
 	UNIX_CONST(EAI_OVERFLOW),
 #endif
 }; /* const_eai[] */
+
+static const struct unix_const const_msg[] = {
+#if defined MSG_EOR
+	UNIX_CONST(MSG_EOR),
+#endif
+#if defined MSG_NOSIGNAL
+	UNIX_CONST(MSG_NOSIGNAL),
+#endif
+#if defined MSG_DONTWAIT
+	UNIX_CONST(MSG_DONTWAIT),
+#endif
+#if defined MSG_OOB
+	UNIX_CONST(MSG_OOB),
+#endif
+#if defined MSG_PEEK
+	UNIX_CONST(MSG_PEEK),
+#endif
+#if defined MSG_WAITALL
+	UNIX_CONST(MSG_WAITALL),
+#endif
+}; /* const_msg[] */
+
+static const struct unix_const const_ni[] = {
+	UNIX_CONST(NI_NOFQDN),
+	UNIX_CONST(NI_NUMERICHOST),
+	UNIX_CONST(NI_NAMEREQD),
+	UNIX_CONST(NI_NUMERICSERV),
+#if defined NI_NUMERICSCOPE
+	UNIX_CONST(NI_NUMERICSCOPE),
+#endif
+	UNIX_CONST(NI_DGRAM),
+}; /* const_ni[] */
+
+static const struct unix_const const_poll[] = {
+	UNIX_CONST(POLLERR), 
+	UNIX_CONST(POLLHUP),
+	UNIX_CONST(POLLIN),
+	UNIX_CONST(POLLOUT),
+	UNIX_CONST(POLLNVAL),
+	UNIX_CONST(POLLPRI),
+	UNIX_CONST(POLLRDBAND),
+	UNIX_CONST(POLLRDNORM),
+	UNIX_CONST(POLLWRBAND),
+	UNIX_CONST(POLLWRNORM),
+}; /* const_poll[] */
 
 static const struct unix_const const_clock[] = {
 	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
@@ -7600,6 +9608,17 @@ static const struct unix_const const_wait[] = {
 #endif
 }; /* const_wait[] */
 
+static const struct unix_const const_resource[] = {
+	UNIX_CONST(RLIMIT_CORE), UNIX_CONST(RLIMIT_CPU),
+	UNIX_CONST(RLIMIT_DATA), UNIX_CONST(RLIMIT_FSIZE),
+	UNIX_CONST(RLIMIT_NOFILE), UNIX_CONST(RLIMIT_STACK),
+#if HAVE_DECL_RLIMIT_AS
+	UNIX_CONST(RLIMIT_AS),
+#endif
+
+	UNIX_CONST(RUSAGE_CHILDREN), UNIX_CONST(RUSAGE_SELF),
+}; /* const_resource[] */
+
 static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIGABRT), UNIX_CONST(SIGALRM), UNIX_CONST(SIGBUS),
 	UNIX_CONST(SIGCHLD), UNIX_CONST(SIGCONT), UNIX_CONST(SIGFPE),
@@ -7712,27 +9731,65 @@ static const struct unix_const const_fcntl[] = {
 #endif
 }; /* const_fcntl[] */
 
+static const struct unix_const const_ioctl[] = {
+#if defined SIOCATMARK
+	UNIX_CONST(SIOCATMARK),
+#endif
+#if defined TIOCGSIZE
+	UNIX_CONST(TIOCGSIZE),
+#endif
+#if defined TIOCSSIZE
+	UNIX_CONST(TIOCSSIZE),
+#endif
+#if defined TIOCGWINSZ
+	UNIX_CONST(TIOCGWINSZ),
+#endif
+#if defined TIOCSWINSZ
+	UNIX_CONST(TIOCSWINSZ),
+#endif
+#if defined TIOCSCTTY
+	UNIX_CONST(TIOCSCTTY),
+#endif
+}; /* const_ioctl[] */
+
 static const struct unix_const const_locale[] = {
 	UNIX_CONST(LC_ALL), UNIX_CONST(LC_COLLATE), UNIX_CONST(LC_CTYPE),
 	UNIX_CONST(LC_MONETARY), UNIX_CONST(LC_NUMERIC), UNIX_CONST(LC_TIME),
 }; /* const_locale[] */
 
+/* miscellaneous constants */
+static const struct unix_const const_unistd[] = {
+	UNIX_CONST(STDIN_FILENO), UNIX_CONST(STDOUT_FILENO),
+	UNIX_CONST(STDERR_FILENO),
+
+	UNIX_CONST(F_ULOCK), UNIX_CONST(F_LOCK),
+	UNIX_CONST(F_TLOCK), UNIX_CONST(F_TEST),
+}; /* const_unistd[] */
+
 static const struct {
 	const struct unix_const *table;
 	size_t size;
 } unix_const[] = {
-	{ const_af,      countof(const_af) },
-	{ const_sock,    countof(const_sock) },
-	{ const_ipproto, countof(const_ipproto) },
-	{ const_ai,      countof(const_ai) },
-	{ const_eai,     countof(const_eai) },
-	{ const_clock,   countof(const_clock) },
-	{ const_errno,   countof(const_errno) },
-	{ const_iff,     countof(const_iff) },
-	{ const_wait,    countof(const_wait) },
-	{ const_signal,  countof(const_signal) },
-	{ const_fcntl,   countof(const_fcntl) },
-	{ const_locale,  countof(const_locale) },
+	{ const_af,       countof(const_af) },
+	{ const_sock,     countof(const_sock) },
+	{ const_ipproto,  countof(const_ipproto) },
+	{ const_ip,       countof(const_ip) },
+	{ const_ipv6,     countof(const_ipv6) },
+	{ const_ai,       countof(const_ai) },
+	{ const_eai,      countof(const_eai) },
+	{ const_msg,      countof(const_msg) },
+	{ const_ni,       countof(const_ni) },
+	{ const_poll,     countof(const_poll) },
+	{ const_clock,    countof(const_clock) },
+	{ const_errno,    countof(const_errno) },
+	{ const_iff,      countof(const_iff) },
+	{ const_wait,     countof(const_wait) },
+	{ const_signal,   countof(const_signal) },
+	{ const_resource, countof(const_resource) },
+	{ const_fcntl,    countof(const_fcntl) },
+	{ const_ioctl,    countof(const_ioctl) },
+	{ const_locale,   countof(const_locale) },
+	{ const_unistd,   countof(const_unistd) },
 }; /* unix_const[] */
 
 
@@ -7794,6 +9851,13 @@ int luaopen_unix(lua_State *L) {
 	lua_pop(L, 1);
 
 	/*
+	 * add struct sockaddr class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "struct sockaddr", NULL, sa_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
 	 * insert unix routines into module table with unixL_State as upvalue
 	 */
 	luaL_newlibtable(L, unix_routines);
@@ -7828,6 +9892,16 @@ int luaopen_unix(lua_State *L) {
 	}
 
 	/*
+	 * special RLIM values
+	 */
+	lua_pushnumber(L, RL_RLIM_INFINITY);
+	lua_setfield(L, -2, "RLIM_INFINITY");
+	lua_pushnumber(L, RL_RLIM_SAVED_CUR);
+	lua_setfield(L, -2, "RLIM_SAVED_CUR");
+	lua_pushnumber(L, RL_RLIM_SAVED_MAX);
+	lua_setfield(L, -2, "RLIM_SAVED_MAX");
+
+	/*
 	 * insert signal handlers
 	 */
 	for (i = 0; i < countof(unix_sighandler); i++) {
@@ -7836,6 +9910,18 @@ int luaopen_unix(lua_State *L) {
 		luaL_setmetatable(L, "sighandler_t*");
 		lua_setfield(L, -2, unix_sighandler[i].name);
 	}
+
+	/*
+	 * add __index and __newindex metamethods to unix module table
+	 */
+	lua_createtable(L, 0, 2);
+	lua_pushvalue(L, -3);
+	lua_pushcclosure(L, &unix__index, 1);
+	lua_setfield(L, -2, "__index");
+	lua_pushvalue(L, -3);
+	lua_pushcclosure(L, &unix__newindex, 1);
+	lua_setfield(L, -2, "__newindex");
+	lua_setmetatable(L, -2);
 
 	return 1;
 } /* luaopen_unix() */

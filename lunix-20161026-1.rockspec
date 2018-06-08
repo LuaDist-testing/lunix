@@ -1,10 +1,10 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = 'lunix'
-version = '20161026-0'
+version = '20161026-1'
 -- LuaDist source
 source = {
-  tag = "20161026-0",
+  tag = "20161026-1",
   url = "git://github.com/LuaDist-testing/lunix.git"
 }
 -- Original source
@@ -31,5 +31,26 @@ build = {
 				"_GNU_SOURCE";
 			};
 		};
-	}
+	};
+	platforms = {
+		linux = {
+			modules = {
+				["unix"] = {
+					libraries = {nil;
+						-- glibc <= 2.17 needs to link with librt
+						"rt";
+					};
+				};
+			};
+		};
+		osx = {
+			modules = {
+				["unix"] = {
+					defines = {nil, nil, nil;
+						"__APPLE_USE_RFC_3542";
+					};
+				};
+			};
+		};
+	};
 }

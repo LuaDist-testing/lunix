@@ -39,8 +39,8 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>        /* F_* fcntl(2) open(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
+#include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
@@ -94,6 +94,23 @@
 #define SUNOS_PREREQ_5_10 (defined __sun && defined _DTRACE_VERSION)
 #define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
 #define SUNOS_PREREQ(M, m) SUNOS_PREREQ_ ## M ## _ ## m
+
+#define IPHONE_2VER(M, m) (((M) * 10000) + ((m) * 100))
+#if defined __IPHONE_OS_VERSION_MIN_REQUIRED
+#define IPHONE_PREREQ(M, m) (IPHONE_2VER((M), (m)) <= __IPHONE_OS_VERSION_MIN_REQUIRED)
+#else
+#define IPHONE_PREREQ(M, m) 0
+#endif
+
+#define MACOS_2VER_10_9(M, m, p) (((M) * 100) + ((m) * 10))
+#define MACOS_2VER_10_10(M, m, p) (((M) * 10000) + ((m) * 100) + (p))
+#define MACOS_PREREQ_10_10(M, m, p) (((M) > 10 || ((M) == 10 && (m) >= 10)) && MACOS_2VER_10_10((M), (m), (p)) <= __MAC_OS_X_VERSION_MIN_REQUIRED)
+#define MACOS_PREREQ_10_9(M, m, p) (((M) == 10 && (m) < 10) && MACOS_2VER_10_9((M), (m), (p)) <= __MAC_OS_X_VERSION_MIN_REQUIRED)
+#if defined __MAC_OS_X_VERSION_MIN_REQUIRED
+#define MACOS_PREREQ(M, m, p) (MACOS_PREREQ_10_10((M), (m), (p)) || MACOS_PREREQ_10_9((M), (m), (p)))
+#else
+#define MACOS_PREREQ(M, m, p) 0
+#endif
 
 #if !HAVE_CONFIG_H
 
@@ -294,7 +311,7 @@
 #endif
 
 #ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
 #ifndef HAVE_ISSETUGID
@@ -337,6 +354,18 @@
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
 #endif
 
+#ifndef HAVE_MKDIRAT
+#define HAVE_MKDIRAT HAVE_OPENAT
+#endif
+
+#ifndef HAVE_MKFIFOAT
+#define HAVE_MKFIFOAT (!__APPLE__ && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
+#endif
+
+#ifndef HAVE_OPENAT
+#define HAVE_OPENAT ((!__APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
+#endif
+
 #ifndef HAVE_PACCEPT
 #define HAVE_PACCEPT NETBSD_PREREQ(6,0)
 #endif
@@ -363,6 +392,10 @@
 
 #ifndef HAVE_DECL_P_XARGV
 #define HAVE_DECL_P_XARGV 0
+#endif
+
+#ifndef HAVE_RENAMEAT
+#define HAVE_RENAMEAT HAVE_OPENAT
 #endif
 
 #ifndef HAVE_SIGTIMEDWAIT
@@ -392,6 +425,10 @@
 
 #ifndef HAVE_SYS_SIGLIST
 #define HAVE_SYS_SIGLIST (!MUSL_MAYBE && !__sun && !_AIX)
+#endif
+
+#ifndef HAVE_UNLINKAT
+#define HAVE_UNLINKAT HAVE_OPENAT
 #endif
 
 #ifndef HAVE_DECL_SYS_SIGLIST
@@ -5846,6 +5883,37 @@ error:
 } /* unix_fopen() */
 
 
+#if HAVE_OPENAT
+static int unix_fopenat(lua_State *L) {
+	int fd = -1, at, error;
+	const char *path, *mode;
+	u_flags_t flags;
+	mode_t perm;
+	luaL_Stream *fh;
+
+	lua_settop(L, 4);
+	at = unixL_checkfileno(L, 1);
+	path = luaL_checkstring(L, 2);
+	unixL_checkflags(L, 3, &mode, &flags, &perm);
+
+	fh = unixL_prepfile(L);
+	if (-1 == (fd = openat(at, path, flags, perm)))
+		goto syerr;
+	/* should we use string mode if specified? */
+	if (!(fh->f = fdopen(fd, u_strmode(flags))))
+		goto syerr;
+	fd = -1;
+
+	return 1;
+syerr:
+	error = errno;
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "fopenat", "~$#");
+} /* unix_fopenat() */
+#endif
+
+
 static int unix_fpipe(lua_State *L) {
 	int fd[2] = { -1, -1 }, error;
 	luaL_Stream *fh[2] = { NULL, NULL };
@@ -7203,6 +7271,8 @@ static int unix_lstat(lua_State *L) {
 /*
  * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
  * want to set bits restricted by the umask you must manually use chmod.
+ *
+ * FIXME: Remove mode magic. See unix_mkdirat(), below.
  */
 static int unix_mkdir(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
@@ -7221,6 +7291,27 @@ static int unix_mkdir(lua_State *L) {
 } /* unix_mkdir() */
 
 
+#if HAVE_MKDIRAT
+/*
+ * XXX: Intentionally excluding the supression of SUID, SGID, and SVTIX bits
+ * as done by unix_mkdir() above. Forking might fail in sandboxed processes
+ * (seccomp, pledge) and the mkdir() + chmod() sequence is not atomic.
+ */
+static int unix_mkdirat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	mode_t mode = unixL_optmode(L, 3, 0777, 0777);
+
+	if (0 != mkdirat(at, path, mode))
+		return unixL_pusherror(L, errno, "mkdirat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkdirat() */
+#endif
+
+
 static int unix_mkfifo(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 	mode_t mode = unixL_optmode(L, 2, 0666, 0666);
@@ -7232,6 +7323,22 @@ static int unix_mkfifo(lua_State *L) {
 
 	return 1;
 } /* unix_mkfifo() */
+
+
+#if HAVE_MKFIFOAT
+static int unix_mkfifoat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	mode_t mode = unixL_optmode(L, 3, 0666, 0666);
+
+	if (0 != mkfifoat(at, path, mode))
+		return unixL_pusherror(L, errno, "mkfifoat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkfifoat() */
+#endif
 
 
 /*
@@ -7331,6 +7438,36 @@ error:
 
 	return unixL_pusherror(L, error, "open", "~$#");
 } /* unix_open() */
+
+
+/*
+ * TODO: Emulate openat() with fork+chdir+open+sendmsg.
+ */
+#if HAVE_OPENAT
+static int unix_openat(lua_State *L) {
+	int fd = -1, at, error;
+	const char *path, *mode;
+	u_flags_t flags;
+	mode_t perm;
+
+	lua_settop(L, 4);
+	at = unixL_checkfileno(L, 1);
+	path = luaL_checkstring(L, 2);
+	unixL_checkflags(L, 3, &mode, &flags, &perm);
+
+	if (-1 == (fd = openat(at, path, flags, perm)))
+		goto syerr;
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+syerr:
+	error = errno;
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "openat", "~$#");
+} /* unix_openat() */
+#endif
 
 
 static DIR *dir_checkself(lua_State *L, int index) {
@@ -7950,6 +8087,23 @@ static int unix_rename(lua_State *L) {
 
 	return 1;
 } /* unix_rename() */
+
+
+#if HAVE_RENAMEAT
+static int unix_renameat(lua_State *L) {
+	int fromfd = unixL_checkfileno(L, 1);
+	const char *from = luaL_checkstring(L, 2);
+	int tofd = unixL_checkfileno(L, 3);
+	const char *to = luaL_checkstring(L, 4);
+
+	if (0 != renameat(fromfd, from, tofd, to))
+		return unixL_pusherror(L, errno, "renameat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_renameat() */
+#endif
 
 
 static int unix_rewinddir(lua_State *L) {
@@ -8888,6 +9042,22 @@ static int unix_unlink(lua_State *L) {
 } /* unix_unlink() */
 
 
+#if HAVE_UNLINKAT
+static int unix_unlinkat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	int flags = luaL_optint(L, 3, 0);
+
+	if (0 != unlinkat(at, path, flags))
+		return unixL_pusherror(L, errno, "unlinkat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_unlinkat() */
+#endif
+
+
 static int unix_unlockpt(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 
@@ -9060,6 +9230,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fopen",              &unix_fopen },
+#if HAVE_OPENAT
+	{ "fopenat",            &unix_fopenat },
+#endif
 	{ "fpipe",              &unix_fpipe },
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
@@ -9101,9 +9274,18 @@ static const luaL_Reg unix_routines[] = {
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
+#if HAVE_MKDIRAT
+	{ "mkdirat",            &unix_mkdirat },
+#endif
 	{ "mkfifo",             &unix_mkfifo },
+#if HAVE_MKFIFOAT
+	{ "mkfifoat",           &unix_mkfifoat },
+#endif
 	{ "mkpath",             &unix_mkpath },
 	{ "open",               &unix_open },
+#if HAVE_OPENAT
+	{ "openat",             &unix_openat },
+#endif
 	{ "opendir",            &unix_opendir },
 	{ "pipe",               &unix_pipe },
 	{ "poll",               &unix_poll },
@@ -9125,6 +9307,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
 	{ "rename",             &unix_rename },
+#if HAVE_RENAMEAT
+	{ "renameat",           &unix_renameat },
+#endif
 	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
 	{ "S_ISBLK",            &unix_S_ISBLK },
@@ -9171,6 +9356,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "umask",              &unix_umask },
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
+#if HAVE_UNLINKAT
+	{ "unlinkat",           &unix_unlinkat },
+#endif
 	{ "unlockpt",           &unix_unlockpt },
 	{ "unsetenv",           &unix_unsetenv },
 	{ "wait",               &unix_wait },
@@ -9649,6 +9837,22 @@ static const struct {
 }; /* unix_sighandler[] */
 
 static const struct unix_const const_fcntl[] = {
+#if defined AT_EACCESS
+	UNIX_CONST(AT_EACCESS),
+#endif
+#if defined AT_FDCWD
+	UNIX_CONST(AT_FDCWD),
+#endif
+#if defined AT_REMOVEDIR
+	UNIX_CONST(AT_REMOVEDIR),
+#endif
+#if defined AT_SYMLINK_FOLLOW
+	UNIX_CONST(AT_SYMLINK_FOLLOW),
+#endif
+#if defined AT_SYMLINK_NOFOLLOW
+	UNIX_CONST(AT_SYMLINK_NOFOLLOW),
+#endif
+
 	UNIX_CONST(F_DUPFD),
 #if defined F_DUPFD_CLOEXEC
 	UNIX_CONST(F_DUPFD_CLOEXEC),

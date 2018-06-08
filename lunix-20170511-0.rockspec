@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = 'lunix'
-version = '20161026-1'
+version = '20170511-0'
 -- LuaDist source
 source = {
-  tag = "20161026-1",
+  tag = "20170511-0",
   url = "git://github.com/LuaDist-testing/lunix.git"
 }
 -- Original source
 -- source = {
--- 	url = 'https://github.com/wahern/lunix/archive/rel-20161026.tar.gz',
--- 	dir = "lunix-rel-20161026";
+-- 	url = 'https://github.com/wahern/lunix/archive/rel-20170511.tar.gz',
+-- 	dir = "lunix-rel-20170511";
 -- }
 description = {
 	summary = "Lua Unix Module.";

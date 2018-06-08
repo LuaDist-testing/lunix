@@ -118,18 +118,19 @@ arc4random : () -> (integer)
 ```
 
 Returns a cryptographically strong, uniformly random 32-bit integer as a Lua
-number.
+number. On Linux the `RANDOM_UUID` `sysctl` feature is used to seed the
+generator if available; or on more recent Linux and Solaris kernels the
+`getrandom` interface.[^sysctl_uuid] This avoids fiddling with file
+descriptors, and also works in a chroot jail. On other platforms without a
+native `arc4random` interface, such as Solaris 11.2 or earlier, the
+implementation must resort to /dev/urandom for seeding.
 
-On Linux the `RANDOM_UUID` `sysctl` feature is used to seed the generator if
-available.[^sysctl_uuid] This avoids fiddling with file descriptors, and
-also works in a chroot jail. On other platforms without a native
-`arc4random` interface, such as Solaris, the implementation must resort to
-/dev/urandom for seeding. Similarly, unlike the original implementation on
-OpenBSD, `arc4random` on OS X and FreeBSD (prior to 10.0) seeds itself from
+Note that unlike the original implementation on OpenBSD, arc4random on some
+older platforms (e.g. FreeBSD prior to 10.10) seeds itself from
 /dev/urandom. This could cause problems in chroot jails.
 
 [^sysctl_uuid]: Some Linux distributions, such as Red Hat, disable
-`sysctl(2)`. In the future support for `getrandom(2)` will be added.
+`sysctl(2)`.
 
 ### arc4random_buf
 
@@ -158,6 +159,8 @@ arc4random_uniform : (n:integer?) -> (integer)
 Returns a cryptographically strong uniform random integer in the interval
 $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is
 $[0, 2^{32}-1]$ and effectively behaves like `arc4random`.
+
+### bind
 
 ### bitand
 
@@ -216,6 +219,7 @@ Returns a time value as a Lua floating point number, otherwise returns `nil`,
 an error string, and an integer system error.
 
 ### close
+
 ### closedir
 
 ```
@@ -226,9 +230,13 @@ Closes the DIR handle, releasing the underlying file descriptor.
 
 ### compl
 
+### connect
+
 ### dup
 
 ### dup2
+
+### dup3
 
 ### execve
 
@@ -314,6 +322,7 @@ Like `_exit`, but first flushes and closes open streams and calls
 ### fchmod
 ### fchown
 ### fcntl
+### fdatasync
 ### fdopen
 ### fdopendir
 ### fdup
@@ -339,6 +348,7 @@ This function only works on FILE handles and not DIR handles or integer
 descriptors.
 
 ### fstat
+### fsync
 ### ftrylockfile
 
 ```
@@ -357,6 +367,7 @@ funlockfile : (fd:FILE) -> (true)
 Unlocks the FILE handle $fh$. Returns `true`.
 
 ### fopen
+### fopenat
 ### fpipe
 ### fork
 
@@ -381,6 +392,7 @@ string, and an integer system error.
 ### gethostname
 ### getifaddrs
 ### getopt
+### getpeername
 ### getpgid
 ### getpgrp
 ### getpid
@@ -388,6 +400,8 @@ string, and an integer system error.
 ### getprogname
 ### getpwnam
 ### getpwuid
+### getrlimit
+### getrusage
 ### gettimeofday
 ### getuid
 ### grantpt
@@ -397,15 +411,20 @@ string, and an integer system error.
 ### kill
 ### lchown
 ### link
+### listen
 ### lockf
 ### lseek
 ### lstat
 ### mkdir
+### mkdirat
 ### mkfifo
+### mkfifoat
 ### mkpath
 ### open
+### openat
 ### opendir
 ### pipe
+### poll
 ### posix_fadvise
 ### posix_fallocate
 ### posix_openpt
@@ -416,7 +435,11 @@ string, and an integer system error.
 ### raise
 ### read
 ### readdir
+### recv
+### recvfrom
+### recvfromto
 ### rename
+### renameat
 ### rewinddir
 ### rmdir
 ### S_ISBLK
@@ -426,6 +449,9 @@ string, and an integer system error.
 ### S_ISREG
 ### S_ISLNK
 ### S_ISSOCK
+### send
+### sendto
+### sendtofrom
 ### setegid
 ### setenv
 ### seteuid
@@ -433,6 +459,8 @@ string, and an integer system error.
 ### setgroups
 ### setlocale
 ### setpgid
+### setrlimit
+### setsockopt
 ### setsid
 ### setuid
 ### sigaction
@@ -445,6 +473,7 @@ string, and an integer system error.
 ### sigtimedwait
 ### sigwait
 ### sleep
+### socket
 ### stat
 ### strerror
 ### strsignal
@@ -457,6 +486,7 @@ string, and an integer system error.
 ### umask
 ### uname
 ### unlink
+### unlinkat
 ### unlockpt
 ### unsetenv
 ### wait

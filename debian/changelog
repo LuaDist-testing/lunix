@@ -1,0 +1,63 @@
+lua-unix (20150923-1) unstable; urgency=low
+
+  * Fix bugs in unix_fpipe, u_fdopen, and u_strmode.
+
+ -- William Ahern <william@25thandClement.com>  Wed, 23 Sep 2015 03:30:34 -0700
+
+lua-unix (20150504-1) unstable; urgency=low
+
+  * Add autoconf support.
+  * Detect and throw exceptions on integer overflow.
+  * Add chmod, dup, fchmod, fchown, fdopen, fdopendir, fdup, fstat, fopen,
+    fpipe, getgroups, getprogname, lseek, lstat, mkfifo, open, pipe,
+    posix_fadvise, posix_fallocate, setgroups, stat.
+  * Add bindings to iso646 named bitwise operators: bitand, bitor, comp,
+    and xor.
+
+ -- William Ahern <william@25thandClement.com>  Mon, 04 May 2015 15:21:04 -0700
+
+lua-unix (20150224-1) unstable; urgency=low
+
+  * Fix MUSL libc build.
+
+ -- William Ahern <william@25thandClement.com>  Tue, 24 Feb 2015 15:15:55 -0800
+
+lua-unix (20150205-1) unstable; urgency=low
+
+  * Add setlocale.
+
+ -- William Ahern <william@25thandClement.com>  Thu, 05 Feb 2015 14:07:51 -0800
+
+lua-unix (20141017-1) unstable; urgency=low
+
+  * Add fileno, dup2.
+
+ -- William Ahern <william@25thandClement.com>  Fri, 17 Oct 2014 19:21:17 -0700
+
+lua-unix (20140819-0) unstable; urgency=low
+
+  * Add flockfile, ftrylockfile, funlockfile, getppid, fcntl, gethostname,
+    lchown, pread, pwrite, read, write.
+  * Fix Debian dh_lua build to link with -lrt.
+
+ -- William Ahern <william@25thandClement.com>  Tue, 19 Aug 2014 21:03:45 -0700
+
+lua-unix (20140801-0) unstable; urgency=low
+
+  * Fix sigtimedwait emulation on OS X and OpenBSD.
+
+ -- William Ahern <william@25thandClement.com>  Fri, 01 Aug 2014 08:12:22 -0700
+
+lua-unix (20140731-0) unstable; urgency=low
+
+  * Add strsignal, sigprocmask, sigtimedwait, kill, raise, and sigset_t
+    bindings.
+  * Fix strerror_r usage on glibc with _GNU_SOURCE defined.
+
+ -- William Ahern <william@25thandClement.com>  Thu, 31 Jul 2014 18:27:01 -0700
+
+lua-unix (20140730-0) unstable; urgency=low
+
+  * Initial Debian package.
+
+ -- William Ahern <william@25thandClement.com>  Wed, 30 Jul 2014 18:41:11 -0700
